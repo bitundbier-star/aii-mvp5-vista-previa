@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+.env
+data/aii.db
+data/aii.db-journal
+data/aii.db-wal
+data/aii.db-shm
+data/correos_enviados/
+data/traspasos/
+app/static/comprobantes/*.png
+app/static/egresos/*
+app/static/reportes/*.png
+capturas/
