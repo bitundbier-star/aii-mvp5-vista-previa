@@ -1,0 +1,152 @@
+{# El cuerpo del reporte mensual: los doce puntos acordados, en orden.
+
+   Vive en un include porque la pantalla y la versión para imprimir muestran
+   exactamente lo mismo. Si se separaran, tarde o temprano el PDF diría una
+   cosa y la pantalla otra — y el PDF es el que circula entre los vecinos.
+#}
+
+{# --- 6 y 7: los dos saldos, lado a lado -------------------------------- #}
+<div class="saldos-par">
+  <div class="saldo-caja principal">
+    <div class="saldo-etiqueta">Saldo al cierre del mes</div>
+    <div class="saldo-cifra">{{ reporte.saldo_cierre|dinero }}</div>
+  </div>
+  <div class="saldo-caja secundaria">
+    <div class="saldo-etiqueta">Saldo al inicio del mes</div>
+    <div class="saldo-cifra">{{ reporte.saldo_apertura|dinero }}</div>
+  </div>
+</div>
+<p class="ayuda pie-saldos">
+  El saldo al cierre de este mes es el saldo de apertura del siguiente. Es una sola cuenta que corre desde que se abrió la cuenta del conjunto.
+</p>
+
+{# --- 5, 4 y 9: las tres cifras del mes --------------------------------- #}
+<div class="grid-stats">
+  <div class="stat"><div class="valor">{{ reporte.ingresos_reales|dinero }}</div><div class="etiqueta">Ingresos reales del mes</div></div>
+  <div class="stat"><div class="valor">{{ reporte.total_egresos|dinero }}</div><div class="etiqueta">Egresos del mes</div></div>
+  <div class="stat {{ 'positivo' if reporte.flujo_caja >= 0 else 'negativo' }}">
+    <div class="valor">{{ reporte.flujo_caja|dinero }}</div>
+    <div class="etiqueta">Flujo de caja del mes{% if reporte.flujo_caja < 0 %} (salió más de lo que entró){% endif %}</div>
+  </div>
+  <div class="stat {{ 'negativo' if reporte.cartera_total > 0 else 'positivo' }}"><div class="valor">{{ reporte.cartera_total|dinero }}</div><div class="etiqueta">Cartera por cobrar</div></div>
+  <div class="stat"><div class="valor">{{ reporte.propiedades_al_corriente }}/{{ reporte.propiedades_al_corriente + reporte.propiedades_con_adeudo }}</div><div class="etiqueta">Propiedades al corriente</div></div>
+</div>
+
+{# --- 1 y 2: por propiedad, saldo acumulado y lo pagado en el mes -------- #}
+<div class="card">
+  <h2>Por propiedad</h2>
+  <table>
+    <tr>
+      <th>Propiedad</th>
+      <th class="num">Pagado en {{ reporte.periodo }}</th>
+      <th class="num">Saldo acumulado</th>
+      <th>Estatus</th>
+    </tr>
+    {% for e in reporte.estado_propiedades %}
+    <tr>
+      <td>
+        {{ e.propiedad.etiqueta }}
+        {% if e.propiedad.nombre_dueno %}<div class="ayuda">{{ e.propiedad.nombre_dueno }}</div>{% endif %}
+      </td>
+      <td class="num">{{ e.pagado_en_el_mes|dinero }}</td>
+      <td class="num {{ e.vista.clase }}"><strong>{{ e.vista.monto }}</strong></td>
+      <td><span class="etiqueta-saldo {{ e.vista.clase }}">{{ e.vista.palabra }}</span></td>
+    </tr>
+    {% endfor %}
+    <tr class="fila-total">
+      <td>Total</td>
+      <td class="num">{{ reporte.ingresos_reales|dinero }}</td>
+      <td class="num">{{ reporte.cartera_total|dinero }} por cobrar</td>
+      <td></td>
+    </tr>
+  </table>
+  <p class="ayuda">El saldo acumulado es al último día de {{ reporte.periodo }}. «Al corriente» incluye a quien no debe nada y a quien pagó por adelantado.</p>
+</div>
+
+{# --- 3 y 4: los egresos del mes, uno por uno --------------------------- #}
+<div class="card">
+  <h2>Egresos de {{ reporte.periodo }}</h2>
+  {% if reporte.egresos_mes %}
+  <table>
+    <tr><th>Fecha</th><th>Concepto</th><th class="num">Monto</th></tr>
+    {% for e in reporte.egresos_mes %}
+    <tr>
+      <td>{{ e.fecha.strftime('%d/%m/%Y') }}</td>
+      <td>{{ e.concepto }}</td>
+      <td class="num">{{ e.monto|dinero }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="fila-total">
+      <td colspan="2">Total de egresos del mes</td>
+      <td class="num">{{ reporte.total_egresos|dinero }}</td>
+    </tr>
+  </table>
+  {% else %}
+  <p class="ayuda">No se registró ningún egreso en {{ reporte.periodo }}.</p>
+  {% endif %}
+</div>
+
+{% if reporte.ingresos_por_concepto %}
+<div class="card">
+  <h2>De dónde vino el dinero</h2>
+  <table>
+    <tr><th>Concepto</th><th class="num">Monto</th></tr>
+    {% for i in reporte.ingresos_por_concepto %}
+    <tr><td>{{ i.concepto }}</td><td class="num">{{ i.monto|dinero }}</td></tr>
+    {% endfor %}
+    <tr class="fila-total"><td>Total</td><td class="num">{{ reporte.ingresos_reales|dinero }}</td></tr>
+  </table>
+  <p class="ayuda">Solo Mantenimiento y Proyecto bajan la deuda de las propiedades. Gas, Agua y Otros entran al saldo del conjunto pero no reducen la cartera.</p>
+</div>
+{% endif %}
+
+{% if reporte.proyectos_en_curso %}
+<div class="card">
+  <h2>Proyectos activos o en recaudación de fondos</h2>
+  <table>
+    <tr><th>Proyecto</th><th class="num">Monto total</th><th class="num">Recaudado</th><th class="num">Falta</th><th>Avance de recaudación</th></tr>
+    {% for p in reporte.proyectos_en_curso %}
+    <tr>
+      <td>{{ p.nombre }}</td>
+      <td class="num">{{ p.monto_total|dinero }}</td>
+      <td class="num">{{ p.recaudado|dinero }}</td>
+      <td class="num">{{ p.falta|dinero }}</td>
+      <td>
+        <div class="barra"><div class="barra-llena" style="width: {{ [p.avance, 100]|min }}%;"></div></div>
+        <span class="ayuda">{{ p.avance }}%</span>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="ayuda">«Avance» es cuánto se lleva recaudado del monto total del proyecto, no el avance de la obra o el trámite.</p>
+</div>
+{% endif %}
+
+{# --- 8: el estado de flujo de caja, solo de este mes -------------------- #}
+<div class="card">
+  <h2>Estado de flujo de caja — {{ reporte.periodo }}</h2>
+  <table class="flujo">
+    <tr>
+      <td>Saldo de apertura</td>
+      <td class="num">{{ reporte.saldo_apertura|dinero }}</td>
+    </tr>
+    <tr>
+      <td>Más: ingresos del mes</td>
+      <td class="num">{{ reporte.ingresos_reales|dinero }}</td>
+    </tr>
+    {% for e in reporte.egresos_mes %}
+    <tr class="sangria">
+      <td>Menos: {{ e.concepto }}</td>
+      <td class="num">{{ e.monto|dinero }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="{{ '' if reporte.egresos_mes else 'sangria' }}">
+      <td><strong>Menos: total de egresos</strong></td>
+      <td class="num"><strong>{{ reporte.total_egresos|dinero }}</strong></td>
+    </tr>
+    <tr class="fila-total">
+      <td>Saldo al cierre</td>
+      <td class="num">{{ reporte.saldo_cierre|dinero }}</td>
+    </tr>
+  </table>
+</div>

@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+{% block titulo %}Configuración{% endblock %}
+{% block contenido %}
+<h1>Configuración</h1>
+
+{% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
+{% if guardada %}<div class="aviso exito">Propiedad guardada.</div>{% endif %}
+{% if borrada %}<div class="aviso exito">Propiedad «{{ borrada }}» borrada.</div>{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Datos del conjunto</h2>
+  <form method="post" action="/configuracion/direccion">
+    <label>Dirección</label>
+    <input type="text" name="direccion" value="{{ conjunto.direccion or '' }}" placeholder="Calle, número, colonia, ciudad">
+    <button type="submit" class="secundario">Guardar dirección</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Monto de mantenimiento</h2>
+  <p>Monto actual: <strong>${{ '%.2f'|format(conjunto.monto_mensual) }}</strong></p>
+  {% if conjunto.historial_montos %}
+  <p class="ayuda">Historial:
+    {% for h in conjunto.historial_montos %} ${{ '%.2f'|format(h.monto) }} desde {{ h.vigente_desde.strftime('%d/%m/%Y') }}{% if not loop.last %} · {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+  <form method="post" action="/configuracion/monto">
+    <label>Nuevo monto</label>
+    <div class="campo-moneda">
+      <span>$</span>
+      <input type="number" step="0.01" min="0" name="nuevo_monto" required placeholder="0.00">
+    </div>
+    <label>¿Desde cuándo aplica?</label>
+    <input type="date" name="vigente_desde" value="{{ hoy }}" required>
+    <p class="ayuda">Los meses anteriores a esta fecha se siguen calculando con el monto que estaba vigente en su momento — no se reescribe el pasado.</p>
+    <button type="submit" class="secundario">Guardar nuevo monto</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Fecha límite de pago mensual</h2>
+  <p class="ayuda">
+    El mantenimiento de cada mes vence el día <strong>{{ conjunto.fecha_limite_pago }}</strong>.
+    Mientras no pase ese día, el mes en curso no cuenta como adeudo — el día 3 nadie debe
+    todavía el mes que apenas empieza. Al cambiarlo, la cartera se recalcula sola.
+  </p>
+  <form method="post" action="/configuracion/fecha-limite">
+    <label>¿Qué día del mes vence el pago?</label>
+    <div class="campo-moneda">
+      <span>Día</span>
+      <input type="number" name="fecha_limite_pago" min="1" max="31" value="{{ conjunto.fecha_limite_pago }}" required>
+    </div>
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Recordatorio de revisión del monto</h2>
+  <p class="ayuda">
+    {% if conjunto.monto_revision_meses %}
+    Ahora mismo te recordamos revisar el monto cada {{ conjunto.monto_revision_meses }} meses.
+    {% else %}
+    Ahora mismo no te recordamos nada: tú cambias el monto cuando lo necesites.
+    {% endif %}
+    Puedes cambiarlo cuando quieras, en los dos sentidos.
+  </p>
+  <form method="post" action="/configuracion/revision">
+    <label>¿Cada cuánto te preguntamos si el monto sigue vigente?</label>
+    <select name="monto_revision_meses">
+      {% for meses, etiqueta in opciones_revision %}
+      <option value="{{ meses }}" {{ 'selected' if conjunto.monto_revision_meses == meses else '' }}>{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Propiedades</h2>
+  <p class="ayuda">
+    {{ propiedades|length }} propiedad{{ 'es' if propiedades|length != 1 else '' }} registrada{{ 's' if propiedades|length != 1 else '' }}.
+    {% if fichas_incompletas %}<strong class="saldo-debe">Faltan datos de {{ fichas_incompletas|length }}.</strong>{% endif %}
+    El número ya no se puede cambiar: aparece en comprobantes que ya se entregaron.
+    El saldo inicial tampoco — se fijó al alta, y de ahí en adelante lo que mueve el saldo son los pagos.
+  </p>
+
+  {% for p in propiedades %}
+  <details class="prop-editable {{ 'ficha-pendiente' if not p.ficha_completa }}" id="propiedad-{{ p.id }}">
+    <summary>
+      <strong>{{ p.etiqueta }}</strong> · {{ p.tipo_legible }}
+      <span class="ayuda-inline">{{ p.nombre_dueno or 'sin propietario capturado' }}</span>
+    </summary>
+    <form method="post" action="/configuracion/propiedades/{{ p.id }}/editar">
+      <div class="fila-campos">
+        <div>
+          <label>Número</label>
+          <input type="text" value="{{ p.numero }}" disabled class="campo-fijo">
+          <div class="ayuda">No se edita: es el ancla estable de la propiedad.</div>
+        </div>
+        <div>
+          <label>Tipo de propiedad</label>
+          <select name="tipo">
+            {% for clave, etiqueta in tipos %}
+            <option value="{{ clave }}" {{ 'selected' if p.tipo == clave }}>{{ etiqueta }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label>Nombre completo del propietario <span class="obligatorio">*</span></label>
+      <input type="text" name="nombre_dueno" value="{{ p.nombre_dueno or '' }}" required>
+
+      <div class="fila-campos">
+        <div>
+          <label>Celular del propietario</label>
+          <input type="tel" name="celular_dueno" value="{{ p.celular_dueno or '' }}" placeholder="+52 55 1234 5678">
+        </div>
+        <div>
+          <label>Correo electrónico del propietario</label>
+          <input type="email" name="email_dueno" value="{{ p.email_dueno or '' }}" placeholder="nombre@correo.com">
+        </div>
+      </div>
+
+      <label>Nombre del residente o inquilino</label>
+      <input type="text" name="nombre_residente" value="{{ p.nombre_residente or '' }}" placeholder="Solo si es distinto del propietario">
+
+      <div class="fila-campos">
+        <div>
+          <label>Celular del residente o inquilino</label>
+          <input type="tel" name="celular_residente" value="{{ p.celular_residente or '' }}" placeholder="+52 55 1234 5678">
+        </div>
+        <div>
+          <label>Correo electrónico del residente o inquilino</label>
+          <input type="email" name="email_residente" value="{{ p.email_residente or '' }}" placeholder="nombre@correo.com">
+        </div>
+      </div>
+
+      <label>Notas</label>
+      <textarea name="notas" placeholder="Si lo dejas vacío se guarda como N/A">{{ '' if p.notas == 'N/A' else p.notas }}</textarea>
+
+      <button type="submit" class="pequeno secundario">Guardar</button>
+    </form>
+
+    <details class="desplegable-peligro">
+      <summary>Borrar esta propiedad</summary>
+      <div class="aviso-peligro">
+        Esto no se puede deshacer.
+        {% if p.pagos %}Se borran también sus {{ p.pagos|length }} pago{{ 's' if p.pagos|length != 1 else '' }} y los comprobantes que ya se le entregaron; el saldo acumulado del conjunto se ajusta solo.{% else %}Esta propiedad todavía no tiene pagos registrados.{% endif %}
+      </div>
+      <form method="post" action="/configuracion/propiedades/{{ p.id }}/borrar">
+        <label>Escribe el número de la propiedad para confirmar</label>
+        <p class="ayuda" style="margin-top:-2px;">Tal cual aparece: <strong>{{ p.numero }}</strong></p>
+        <input type="text" name="confirmacion" autocomplete="off" required>
+        <label>Tu contraseña</label>
+        <input type="password" name="password" required>
+        <button type="submit" class="pequeno peligro">Borrar propiedad</button>
+      </form>
+    </details>
+  </details>
+  {% endfor %}
+
+  <h3 style="margin-bottom:6px;">Agregar propiedad nueva</h3>
+  <p class="ayuda">Solo si el conjunto crece y hay una propiedad genuinamente nueva. Aquí sí puedes escribir su número — después de guardarla queda fijo, como el de las demás. Los mismos campos que la ficha completa, así no hay que volver aparte a capturarlos.</p>
+  <form method="post" action="/configuracion/propiedades/nueva">
+    <div class="fila-campos">
+      <div>
+        <label>Número</label>
+        <input type="text" name="numero" placeholder="p. ej. 105, B-4" maxlength="20">
+        <div class="ayuda">Si lo dejas vacío se usa el siguiente disponible.</div>
+      </div>
+      <div>
+        <label>Tipo de propiedad</label>
+        <select name="tipo">
+          {% for clave, etiqueta in tipos %}
+          <option value="{{ clave }}">{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label>Nombre completo del propietario</label>
+    <input type="text" name="nombre_dueno" placeholder="Lo puedes capturar después">
+
+    <div class="fila-campos">
+      <div>
+        <label>Celular del propietario</label>
+        <input type="tel" name="celular_dueno" placeholder="+52 55 1234 5678">
+      </div>
+      <div>
+        <label>Correo electrónico del propietario</label>
+        <input type="email" name="email_dueno" placeholder="nombre@correo.com">
+      </div>
+    </div>
+
+    <label>Nombre del residente o inquilino</label>
+    <input type="text" name="nombre_residente" placeholder="Solo si es distinto del propietario">
+
+    <div class="fila-campos">
+      <div>
+        <label>Celular del residente o inquilino</label>
+        <input type="tel" name="celular_residente" placeholder="+52 55 1234 5678">
+      </div>
+      <div>
+        <label>Correo electrónico del residente o inquilino</label>
+        <input type="email" name="email_residente" placeholder="nombre@correo.com">
+      </div>
+    </div>
+
+    <label>Notas</label>
+    <textarea name="notas" placeholder="Si lo dejas vacío se guarda como N/A"></textarea>
+
+    <div class="saldo-bloque">
+      <div class="saldo-cab">Saldo inicial de la propiedad <span class="ayuda-inline">(al día de hoy)</span></div>
+      <div class="saldo-opciones">
+        <label class="saldo-opcion activa">
+          <input type="radio" name="tipo_saldo" value="cero" checked>
+          <span><strong>No debe nada</strong><br><span class="ayuda-inline">(el monto es $0.00)</span></span>
+        </label>
+        <label class="saldo-opcion">
+          <input type="radio" name="tipo_saldo" value="debe">
+          <span><strong>Debe esta cantidad</strong> al día de hoy
+            <span class="monto-wrap"><span class="pre">$</span><input type="number" step="0.01" min="0" placeholder="0.00" disabled><span class="post">mxn</span></span>
+          </span>
+        </label>
+        <label class="saldo-opcion">
+          <input type="radio" name="tipo_saldo" value="favor">
+          <span><strong>Tiene saldo a favor.</strong> Pagó por adelantado
+            <span class="monto-wrap"><span class="pre">$</span><input type="number" step="0.01" min="0" placeholder="0.00" disabled><span class="post">mxn</span></span>
+          </span>
+        </label>
+      </div>
+      <input type="hidden" name="monto_saldo" value="0">
+    </div>
+
+    <button type="submit" class="secundario">Agregar propiedad</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Cambiar contraseña</h2>
+  <p class="ayuda">Para cambiar tu contraseña sin hacer un traspaso de administración.</p>
+  <form method="post" action="/configuracion/password">
+    <label>Contraseña actual</label>
+    <input type="password" name="password_actual" required>
+    <label>Contraseña nueva</label>
+    <input type="password" name="password_nueva" required minlength="6">
+    {% if error_password %}<div class="error">{{ error_password }}</div>{% endif %}
+    {% if exito_password %}<div class="aviso exito">Contraseña actualizada.</div>{% endif %}
+    <button type="submit" class="secundario">Cambiar contraseña</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Correo de recuperación</h2>
+  <p class="ayuda">
+    Para el «Olvidé mi contraseña». Recomendamos que sea el correo de <strong>otra persona</strong>
+    responsable de la administración —un sub-administrador—, no el tuyo: si algún día quien
+    administra pierde el celular con el que entra a la app y a su correo, este es el respaldo que
+    permite recuperar el acceso. Al pedir «Olvidé mi contraseña» el enlace llega tanto al correo
+    de la cuenta ({{ conjunto.cuenta_email }}) como a este.
+  </p>
+  <form method="post" action="/configuracion/recuperacion">
+    <label>Correo de recuperación</label>
+    <input type="email" name="correo_recuperacion" value="{{ conjunto.correo_recuperacion or '' }}" placeholder="correo de otro vecino responsable">
+    {% if error_recuperacion %}<div class="error">{{ error_recuperacion }}</div>{% endif %}
+    {% if exito_recuperacion %}<div class="aviso exito">Correo de recuperación actualizado.</div>{% endif %}
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Método de pago</h2>
+  <p class="ayuda">La suscripción de tu conjunto a AII se cobra a través de Stripe.</p>
+  <form method="post" action="/configuracion/metodo-pago">
+    <button type="submit" class="secundario">Actualizar método de pago</button>
+  </form>
+  {% if mensaje_pago %}
+  <div class="aviso info" style="margin-top:14px;">{{ mensaje_pago }}</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Descargar todo el historial</h2>
+  <p class="ayuda">
+    Un archivo con todo lo que hay en la plataforma: propiedades, pagos, egresos, proyectos y la
+    cartera. Vienen los datos en formato de Excel y también una versión para leer o imprimir.
+  </p>
+  <p class="ayuda">
+    Descárgalo cuando quieras — al cerrar el año, antes de un traspaso, o solo por tener el respaldo.
+    Lo que está aquí adentro es del conjunto, no de la plataforma.
+  </p>
+  <a class="btn secundario" href="/configuracion/descargar">Descargar historial completo</a>
+</div>
+
+<div class="card zona-peligro">
+  <h2 style="margin-top:0">Borrar la cuenta del conjunto</h2>
+
+  <p>
+    Esto <strong>no se puede deshacer</strong>. Al borrar la cuenta desaparecen de la plataforma:
+  </p>
+  <ul>
+    <li>las {{ propiedades|length }} propiedades, con los datos de sus propietarios y residentes</li>
+    <li>todos los pagos registrados y sus comprobantes</li>
+    <li>todos los egresos y proyectos</li>
+    <li>el historial completo de todos los meses</li>
+  </ul>
+
+  <div class="aviso-peligro">
+    No estás borrando tu información: estás borrando las cuentas de todos los vecinos del conjunto,
+    incluidos los comprobantes que ya les entregaste. Si mañana hay una discusión sobre quién pagó
+    qué, este era el registro.
+  </div>
+
+  <p><strong>Antes de continuar, llévate el historial.</strong></p>
+  <a class="btn secundario" href="/configuracion/descargar">Descargar historial completo</a>
+
+  <details class="desplegable-peligro">
+    <summary>Ya descargué el historial y quiero borrar la cuenta</summary>
+    <form method="post" action="/configuracion/borrar-cuenta">
+      <label>Escribe el nombre del conjunto para confirmar</label>
+      <p class="ayuda" style="margin-top:-2px;">Tal cual aparece: <strong>{{ conjunto.nombre }}</strong></p>
+      <input type="text" name="confirmacion" autocomplete="off" required>
+
+      <label>Tu contraseña</label>
+      <input type="password" name="password" required>
+
+      {% if error_borrado %}<div class="error">{{ error_borrado }}</div>{% endif %}
+
+      <p class="ayuda">Se mandará un aviso a {{ conjunto.cuenta_email }} dejando constancia.</p>
+      <button type="submit" class="peligro">Borrar la cuenta definitivamente</button>
+    </form>
+  </details>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Traspaso de administración</h2>
+  <p class="ayuda">Actualiza quién es el administrador en turno. Se genera automáticamente una foto del estado del conjunto en ese momento.</p>
+  <a class="btn secundario" href="/administrador">Ir a traspaso de administración</a>
+</div>
+{% endblock %}

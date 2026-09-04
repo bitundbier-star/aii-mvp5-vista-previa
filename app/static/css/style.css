@@ -1,0 +1,421 @@
+:root {
+  --azul: #1d4ed8;
+  --azul-claro: #eef2ff;
+  --verde: #0a7d3c;
+  --rojo: #b91c1c;
+  --gris-100: #f7f7f8;
+  --gris-300: #e2e2e6;
+  --gris-600: #6b7280;
+  --gris-900: #1a1a1a;
+  --radio: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  background: var(--gris-100);
+  color: var(--gris-900);
+}
+
+.contenedor {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 16px 80px;
+}
+
+.contenedor-angosto {
+  max-width: 420px;
+  margin: 60px auto;
+  padding: 0 16px;
+}
+
+header.topbar {
+  background: white;
+  border-bottom: 1px solid var(--gris-300);
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+header.topbar .marca-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Sin min-width:0 un nombre de conjunto largo no se deja encoger y empuja
+     el botón "Salir" fuera de la pantalla en un celular angosto. */
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+header.topbar .marca-texto {
+  min-width: 0;
+}
+
+header.topbar .logo-icono {
+  height: 32px;
+  width: auto;
+  display: block;
+  flex: 0 0 auto;
+}
+
+header.topbar .marca {
+  font-weight: 700;
+  color: var(--azul);
+  text-decoration: none;
+  font-size: 15px;
+}
+
+header.topbar .conjunto-nombre {
+  display: block;
+  font-size: 13px;
+  color: var(--gris-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+header.topbar .btn { flex: 0 0 auto; }
+
+.login-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.logo-login {
+  height: 38px;
+  width: auto;
+}
+
+.etiqueta-modulo {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--gris-600);
+  text-transform: uppercase;
+}
+
+nav.tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  background: white;
+  border-bottom: 1px solid var(--gris-300);
+  padding: 0 8px;
+}
+
+nav.tabs a {
+  white-space: nowrap;
+  padding: 12px 12px;
+  text-decoration: none;
+  color: var(--gris-600);
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+}
+
+nav.tabs a.activo {
+  color: var(--azul);
+  border-bottom-color: var(--azul);
+  font-weight: 600;
+}
+
+h1 { font-size: 22px; margin: 4px 0 16px; }
+h2 { font-size: 17px; margin: 24px 0 10px; }
+
+.card {
+  background: white;
+  border: 1px solid var(--gris-300);
+  border-radius: var(--radio);
+  padding: 16px;
+  margin-bottom: 14px;
+  /* Una tabla ancha (muchas columnas, folios largos, correos largos) se
+     desborda en pantalla angosta. En vez de que el texto se corte o se
+     salga del recuadro, esta franja scrollea horizontalmente por dentro —
+     el contenido nunca se pierde, solo se desliza. */
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.grid-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.stat { background: white; border: 1px solid var(--gris-300); border-radius: var(--radio); padding: 14px; }
+.stat .valor { font-size: 22px; font-weight: 700; }
+.stat .etiqueta { font-size: 12px; color: var(--gris-600); margin-top: 2px; }
+.stat.positivo .valor { color: var(--verde); }
+.stat.negativo .valor { color: var(--rojo); }
+
+label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+input[type=text], input[type=email], input[type=password], input[type=number], input[type=date], input[type=tel], textarea, select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--gris-300);
+  border-radius: 8px;
+  font-size: 15px;
+  background: white;
+}
+textarea { resize: vertical; min-height: 70px; font-family: inherit; font-size: inherit; }
+
+.check { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; }
+.check input { width: auto; }
+.check label { margin: 0; font-weight: 400; }
+
+button, .btn {
+  display: inline-block;
+  background: var(--azul);
+  color: white;
+  border: none;
+  padding: 11px 18px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  margin-top: 16px;
+}
+button.secundario, .btn.secundario { background: white; color: var(--azul); border: 1px solid var(--azul); }
+button.whatsapp, .btn.whatsapp { background: #25D366; }
+button.pequeno { padding: 6px 12px; font-size: 13px; margin-top: 0; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 9px 6px; border-bottom: 1px solid var(--gris-300); }
+th { color: var(--gris-600); font-weight: 600; font-size: 12px; text-transform: uppercase; white-space: nowrap; }
+/* Un correo o nombre largo en una celda no debe forzar la tabla entera a
+   ensancharse más de lo necesario — que se parta en dos líneas primero. */
+td { word-break: break-word; }
+
+.badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.badge.ok { background: #dcfce7; color: var(--verde); }
+.badge.debe { background: #fee2e2; color: var(--rojo); }
+.badge.neutro { background: var(--gris-100); color: var(--gris-600); border: 1px solid var(--gris-300); }
+.badge.progreso { background: var(--azul-claro); color: var(--azul); }
+
+.aviso { background: #fff7ed; border: 1px solid #fdba74; border-radius: var(--radio); padding: 12px 14px; margin-bottom: 16px; font-size: 14px; }
+.aviso.info { background: var(--azul-claro); border-color: #93c5fd; }
+.aviso.exito { background: #dcfce7; border-color: #86efac; }
+.error { color: var(--rojo); font-size: 14px; margin-top: 10px; }
+
+.ayuda { font-size: 12px; color: var(--gris-600); margin-top: 4px; }
+
+a.enlace { color: var(--azul); }
+
+.comprobante-img { width: 100%; max-width: 420px; border: 1px solid var(--gris-300); border-radius: var(--radio); }
+
+footer.pie { text-align: center; font-size: 12px; color: var(--gris-600); padding: 30px 16px; }
+
+/* ---------- Ronda 3 ---------- */
+
+/* Campo de moneda: el signo $ pegado al input, con dos decimales. */
+.campo-moneda { display: flex; align-items: stretch; margin-top: 4px; }
+.campo-moneda span {
+  display: flex; align-items: center; padding: 0 12px;
+  background: var(--gris-100); border: 1px solid var(--gris-300); border-right: 0;
+  border-radius: var(--radio) 0 0 var(--radio); color: var(--gris-600); font-weight: 600;
+}
+.campo-moneda input { margin-top: 0; border-radius: 0 var(--radio) var(--radio) 0; flex: 1; }
+
+/* Campo no editable (el número de propiedad). */
+.campo-fijo { background: var(--gris-100); color: var(--gris-600); cursor: not-allowed; }
+
+.obligatorio { color: var(--rojo); }
+
+/* Dos campos lado a lado, apilados en pantalla chica. */
+.fila-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 620px) { .fila-campos { grid-template-columns: 1fr; } }
+
+/* Ficha de propiedad a la que le faltan datos. */
+.ficha-pendiente { border-left: 4px solid #fdba74; }
+
+/* Color como pista visual del saldo: debe vs. a favor. */
+.txt-debe { color: var(--rojo); }
+.txt-favor { color: var(--verde); }
+
+.aviso.error-aviso { background: #fee2e2; border-color: #fca5a5; }
+
+/* Barra de filtros combinables. */
+.filtros { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; }
+.filtros label { margin-top: 0; }
+.filtros input, .filtros select { margin-top: 4px; }
+.filtros-botones { display: flex; gap: 8px; align-items: center; }
+.filtros-botones .btn { margin-top: 0; }
+
+/* Acciones dentro de una tabla (editar / eliminar). */
+td.acciones { white-space: nowrap; }
+td.acciones form { display: inline; }
+.enlace-boton {
+  background: none; border: 0; padding: 0; margin: 0 0 0 10px;
+  font-size: 14px; cursor: pointer; text-decoration: underline; color: var(--azul);
+}
+.enlace-boton.peligro { color: var(--rojo); }
+
+.form-inline-editar { background: var(--gris-100); padding: 14px; border-radius: var(--radio); }
+
+/* Encabezado del reporte con logo. */
+.encabezado-reporte { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.logo-reporte { height: 40px; }
+.logo-alta { height: 54px; }
+.acciones-reporte .btn, .acciones-reporte button { margin-right: 8px; }
+
+/* Barra de avance de un proyecto. */
+.barra { background: var(--gris-100); border-radius: 999px; height: 8px; overflow: hidden; min-width: 90px; }
+.barra-llena { background: var(--verde); height: 100%; }
+
+.stat.positivo .valor { color: var(--verde); }
+.stat.negativo .valor { color: var(--rojo); }
+
+/* ---------------------------------------------------------------------------
+   Saldos: cómo se ve el dinero de una propiedad.
+
+   Regla única de toda la app: la cifra siempre en positivo, sin signo. Un
+   "-$500.00" junto a la palabra "a favor" se lee al revés — parece que le
+   están quitando dinero al vecino. Lo que dice de qué se trata es la palabra
+   y el color: verde a favor, rojo el adeudo.
+--------------------------------------------------------------------------- */
+.saldo-debe { color: #b3261e; }
+.saldo-favor { color: #0a7d3c; }
+.saldo-cero { color: #0a7d3c; }
+
+.etiqueta-saldo {
+  display: inline-block; font-size: 11.5px; font-weight: 700;
+  padding: 3px 10px; border-radius: 99px; white-space: nowrap;
+}
+.etiqueta-saldo.saldo-debe { background: #fdecea; color: #9f1c14; }
+.etiqueta-saldo.saldo-favor { background: #e7f6ec; color: #0a5c2e; }
+.etiqueta-saldo.saldo-cero { background: #f2faf5; color: #15803d; box-shadow: inset 0 0 0 1px #cbe9d5; }
+
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Bloque de captura del saldo inicial (tres opciones en vez de un signo) */
+.saldo-bloque {
+  border: 1px solid #dcdfe4; border-radius: 10px; padding: 14px 16px;
+  margin: 16px 0; background: #fcfcfd;
+}
+.saldo-cab { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 12px; }
+.ayuda-inline { font-weight: 400; color: #6b7280; }
+.saldo-opciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.saldo-opcion {
+  border: 1px solid #e5e7eb; border-radius: 8px; padding: 11px 12px;
+  font-size: 13px; background: #fff; cursor: pointer; display: block;
+  transition: border-color .12s, background .12s;
+}
+.saldo-opcion:hover { border-color: #93c5fd; }
+.saldo-opcion.activa { border-color: #1d4ed8; background: #eff6ff; }
+.saldo-opcion input[type=radio] { margin-right: 7px; }
+.saldo-opcion .monto-wrap {
+  margin-top: 9px; display: flex; align-items: center; gap: 5px;
+  border: 1px solid #d1d5db; border-radius: 7px; background: #fff; padding: 5px 9px;
+}
+.saldo-opcion .monto-wrap .pre,
+.saldo-opcion .monto-wrap .post { font-size: 12.5px; color: #6b7280; flex: 0 0 auto; }
+.saldo-opcion .monto-wrap input {
+  border: 0; outline: none; background: transparent; width: 100%;
+  font-size: 13.5px; padding: 0; margin: 0; min-width: 0;
+}
+/* Un input deshabilitado se traga el clic y no lo deja llegar a la tarjeta.
+   Sin esto, picarle al campo gris —que es lo primero que uno hace— no
+   seleccionaría la opción. */
+.saldo-opcion .monto-wrap input:disabled { pointer-events: none; color: #c4c8ce; }
+.saldo-opcion .monto-wrap:has(input:disabled) { background: #f3f4f6; border-color: #e9ebee; }
+.saldo-resumen { margin-top: 12px; font-size: 13px; display: flex; align-items: center; gap: 9px; }
+
+/* ---------------------------------------------------------------------------
+   Reporte mensual
+--------------------------------------------------------------------------- */
+.saldos-par { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0 0; }
+.saldo-caja { border: 2px solid #cbd5e1; border-radius: 12px; padding: 18px 20px; text-align: center; }
+.saldo-caja .saldo-etiqueta { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+.saldo-caja.principal { border-color: #0a7d3c; background: #f2faf5; }
+.saldo-caja.principal .saldo-cifra { font-size: 30px; font-weight: 700; color: #0a7d3c; letter-spacing: -.02em; }
+.saldo-caja.secundaria .saldo-cifra { font-size: 19px; font-weight: 600; color: #374151; }
+.pie-saldos { margin: 8px 0 4px; }
+
+table.flujo td { padding: 8px 6px; }
+table.flujo tr.sangria td:first-child { padding-left: 22px; color: #4b5563; }
+tr.fila-total td {
+  border-top: 2px solid #1a1a1a; border-bottom: 0;
+  font-weight: 700; padding-top: 10px;
+}
+
+.selector-mes select { max-width: 340px; }
+
+@media (max-width: 700px) {
+  .saldo-opciones, .saldos-par { grid-template-columns: 1fr; }
+}
+
+/* Fichas de propiedad plegables en Configuración: la lista se lee de un
+   vistazo y solo se abre la que se va a editar. */
+.prop-editable {
+  border: 1px solid #e5e7eb; border-radius: 9px; margin-bottom: 9px; background: #fff;
+}
+.prop-editable > summary {
+  cursor: pointer; padding: 11px 14px; font-size: 14px; list-style: none;
+  display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap;
+}
+.prop-editable > summary::-webkit-details-marker { display: none; }
+.prop-editable > summary::before { content: "▸"; color: #9ca3af; }
+.prop-editable[open] > summary::before { content: "▾"; }
+.prop-editable[open] > summary { border-bottom: 1px solid #eef0f2; }
+.prop-editable > form { padding: 14px; }
+.prop-editable.ficha-pendiente { border-left: 3px solid #d97706; }
+.prop-editable > .desplegable-peligro { margin: 0 14px 14px; padding-top: 12px; }
+
+/* ---------------------------------------------------------------------------
+   Modo demostración
+--------------------------------------------------------------------------- */
+.cinta-demo {
+  background: #1d4ed8; color: #fff; padding: 10px 18px; font-size: 13.5px;
+  text-align: center; line-height: 1.5;
+}
+.cinta-demo strong { font-weight: 700; }
+.cinta-demo-ojo {
+  display: inline-block; background: rgba(255,255,255,.16);
+  padding: 1px 10px; border-radius: 99px; margin-left: 6px; font-weight: 600;
+}
+.tarjeta-demo { border: 2px solid #1d4ed8; background: #f5f8ff; }
+.tarjeta-demo h2 { margin-top: 0; font-size: 18px; }
+table.datos-demo { width: auto; margin: 14px 0; }
+table.datos-demo td { border: 0; padding: 4px 18px 4px 0; font-size: 14px; }
+table.datos-demo td:first-child { color: #6b7280; }
+table.datos-demo code {
+  background: #fff; border: 1px solid #d7dce3; padding: 3px 9px;
+  border-radius: 6px; font-size: 14px;
+}
+
+/* ---------------------------------------------------------------------------
+   Zona de peligro: borrar la cuenta.
+
+   Se ve distinta a propósito. Un botón que borra las cuentas de todos los
+   vecinos del conjunto no debe parecerse a "Guardar".
+--------------------------------------------------------------------------- */
+.zona-peligro { border: 1px solid #f3c9c5; }
+.zona-peligro h2 { color: #9f1c14; }
+.aviso-peligro {
+  background: #fdecea; border-left: 3px solid #b3261e; padding: 12px 16px;
+  border-radius: 0 8px 8px 0; font-size: 14px; margin: 14px 0;
+}
+.desplegable-peligro {
+  margin-top: 18px; border-top: 1px solid #f0f0f0; padding-top: 14px;
+}
+.desplegable-peligro > summary {
+  cursor: pointer; font-size: 14px; color: #9f1c14; font-weight: 600;
+  list-style: none; display: flex; gap: 8px; align-items: center;
+}
+.desplegable-peligro > summary::-webkit-details-marker { display: none; }
+.desplegable-peligro > summary::before { content: "▸"; color: #c98b85; }
+.desplegable-peligro[open] > summary::before { content: "▾"; }
+.desplegable-peligro > form { margin-top: 14px; }
+button.peligro { background: #b3261e; }
+button.peligro:hover { background: #9f1c14; }
