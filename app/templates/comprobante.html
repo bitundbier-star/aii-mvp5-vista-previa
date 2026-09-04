@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titulo %}Comprobante {{ pago.folio }}{% endblock %}
+{% block contenido %}
+<h1>Comprobante generado</h1>
+
+<div class="aviso {{ 'exito' if smtp_real else 'info' }}">
+  {% if smtp_real %}
+  El comprobante se envió al correo de la cuenta ({{ conjunto.cuenta_email }}){% if enviado_al_vecino %} y también al vecino{% endif %}.
+  {% else %}
+  Modo de prueba: no hay un correo real configurado, así que el comprobante se guardó como vista previa en <code>data/correos_enviados/</code> en lugar de enviarse{% if enviado_al_vecino %} (tanto el de la cuenta como el del vecino){% endif %}. Ver README para conectar un correo real.
+  {% endif %}
+</div>
+
+<div class="card" style="text-align:center;">
+  <img class="comprobante-img" src="/comprobantes/{{ pago.folio }}/imagen" alt="Comprobante {{ pago.folio }}">
+  <div style="margin-top:14px;">
+    <a class="btn secundario pequeno" href="/comprobantes/{{ pago.folio }}/imagen" download="{{ pago.folio }}.png">Descargar</a>
+    <a class="btn whatsapp pequeno" target="_blank"
+       href="https://wa.me/?text={{ ('Comprobante de pago — ' ~ conjunto.nombre ~ ' — ' ~ pago.propiedad.etiqueta ~ ' — ' ~ pago.concepto_legible ~ ' — $' ~ '%.2f'|format(pago.monto) ~ ' — Folio ' ~ pago.folio) | urlencode }}">
+      Compartir por WhatsApp
+    </a>
+  </div>
+  <div class="ayuda" style="margin-top:8px;">Este botón solo abre WhatsApp con el mensaje escrito: tú eliges a quién mandárselo. Para que llegue la imagen, descárgala y adjúntala en el chat.</div>
+</div>
+
+<a class="enlace" href="/pagos">← Volver a pagos</a>
+{% endblock %}

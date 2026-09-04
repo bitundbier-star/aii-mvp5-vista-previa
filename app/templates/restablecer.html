@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titulo %}Restablecer contraseña{% endblock %}
+{% block contenido %}
+<div class="login-header">
+  <img src="/static/img/logo.png" alt="Administración Inteligente de Inmuebles" class="logo-login">
+  <span class="etiqueta-modulo">Auto-administración</span>
+</div>
+<h1>Elegir una contraseña nueva</h1>
+
+<div class="card">
+  {% if not token %}
+  <div class="aviso error-aviso">{{ error }}</div>
+  <a class="btn secundario" href="/recuperar">Pedir un enlace nuevo</a>
+  {% else %}
+  <form method="post" action="/restablecer">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label>Contraseña nueva</label>
+    <input type="password" name="password_nueva" required minlength="6">
+    <button type="submit">Guardar contraseña</button>
+  </form>
+  {% endif %}
+</div>
+<p style="text-align:center; font-size:14px;"><a class="enlace" href="/login">Volver a iniciar sesión</a></p>
+{% endblock %}

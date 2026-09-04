@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block titulo %}Inicio{% endblock %}
+{% block contenido %}
+<h1>Hola, {{ conjunto.admin_nombre }}</h1>
+
+{% if not smtp_real %}
+<div class="aviso info">Modo de prueba: no hay un correo real configurado, así que los correos (comprobantes, avisos de egresos y reportes) se guardan como vista previa en <code>data/correos_enviados/</code> en lugar de enviarse. Ver README para conectar un correo real.</div>
+{% endif %}
+
+{% if fichas_incompletas %}
+<div class="aviso">
+  Faltan los datos del propietario en {{ fichas_incompletas|length }} propiedad{{ 'es' if fichas_incompletas|length != 1 else '' }}.
+  <a class="enlace" href="/propiedades">Completarlos ahora</a>
+</div>
+{% endif %}
+
+{% if revision_pendiente %}
+<div class="aviso">
+  <strong>¿Tu monto mensual de ${{ '%.2f'|format(conjunto.monto_mensual) }} sigue vigente?</strong>
+  <form method="post" action="/monto/confirmar" style="display:inline">
+    <button type="submit" class="pequeno secundario">Sigue igual</button>
+  </form>
+  <form method="post" action="/monto/actualizar" style="display:inline-flex; gap:6px; align-items:center; margin-left:8px;">
+    <input type="number" step="0.01" name="nuevo_monto" placeholder="Nuevo monto" style="width:140px; display:inline-block;">
+    <button type="submit" class="pequeno">Actualizar</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="grid-stats">
+  <div class="stat positivo"><div class="valor">{{ resumen.saldo_acumulado|dinero }}</div><div class="etiqueta">Saldo acumulado del conjunto</div></div>
+  <div class="stat"><div class="valor">{{ resumen.ingresos_mes|dinero }}</div><div class="etiqueta">Ingresos del mes</div></div>
+  <div class="stat"><div class="valor">{{ resumen.egresos_mes|dinero }}</div><div class="etiqueta">Egresos del mes</div></div>
+  <div class="stat {{ 'negativo' if resumen.cartera_total > 0 else 'positivo' }}"><div class="valor">{{ resumen.cartera_total|dinero }}</div><div class="etiqueta">Cartera por cobrar</div></div>
+  <div class="stat"><div class="valor">{{ resumen.propiedades_al_corriente }}/{{ resumen.propiedades_al_corriente + resumen.propiedades_con_adeudo }}</div><div class="etiqueta">Propiedades al corriente</div></div>
+</div>
+<p class="ayuda">El mantenimiento de este mes vence el día {{ conjunto.fecha_limite_pago }}. Hasta entonces no cuenta como adeudo. «Al corriente» incluye a quien no debe nada y a quien pagó por adelantado.</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Accesos rápidos</h2>
+  <a class="btn" href="/pagos/nuevo">+ Registrar pago</a>
+  <a class="btn secundario" href="/egresos">+ Registrar egreso</a>
+  <a class="btn secundario" href="/cartera">Ver cartera</a>
+  <a class="btn secundario" href="/reporte">Ver reporte</a>
+</div>
+{% endblock %}

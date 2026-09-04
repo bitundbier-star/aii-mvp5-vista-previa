@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block titulo %}Iniciar sesión{% endblock %}
+{% block contenido %}
+<div class="login-header">
+  <img src="/static/img/logo.png" alt="Administración Inteligente de Inmuebles" class="logo-login">
+  <span class="etiqueta-modulo">Auto-administración</span>
+</div>
+<h1>Iniciar sesión</h1>
+
+{% if modo_demo %}
+<div class="card tarjeta-demo">
+  <h2>Entra a ver la herramienta</h2>
+  <p>Te dejamos abierto un conjunto de ejemplo —<strong>{{ demo_nombre }}</strong>— con siete meses de historia: vecinos al corriente, otros que deben, uno que pagó por adelantado, dos proyectos en marcha y el reporte mensual completo.</p>
+  <table class="datos-demo">
+    <tr><td>Correo</td><td><code>{{ demo_email }}</code></td></tr>
+    <tr><td>Contraseña</td><td><code>{{ demo_password }}</code></td></tr>
+  </table>
+  <form method="post" action="/login">
+    <input type="hidden" name="login_email" value="{{ demo_email }}">
+    <input type="hidden" name="password" value="{{ demo_password }}">
+    <button type="submit">Entrar al conjunto de ejemplo</button>
+  </form>
+  <p class="ayuda" style="margin-bottom:0;">Muévete con confianza: es información inventada y se reinicia cada tanto.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  {% if request.query_params.get('traspaso') == '1' %}
+  <div class="aviso exito">Se actualizó el administrador en turno. Inicia sesión con los nuevos datos.</div>
+  {% endif %}
+  {% if request.query_params.get('restablecida') == '1' %}
+  <div class="aviso exito">Se cambió la contraseña. Inicia sesión con la nueva.</div>
+  {% endif %}
+  <form method="post" action="/login">
+    <label>Correo</label>
+    <p class="ayuda" style="margin-top:-2px;">Es el correo con el que entras (login) — distinto del correo de la cuenta, que recibe reportes y comprobantes.</p>
+    <input type="email" name="login_email" required>
+    <label>Contraseña</label>
+    <input type="password" name="password" required>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <button type="submit">Entrar</button>
+  </form>
+  <p style="text-align:center; font-size:13px; margin-top:12px; margin-bottom:0;"><a class="enlace" href="/recuperar">¿Olvidaste tu contraseña?</a></p>
+</div>
+<p style="text-align:center; font-size:14px; margin-bottom:4px;">¿Tu conjunto todavía no tiene cuenta?</p>
+<p style="text-align:center; font-size:14px; margin-top:0;"><a class="enlace" href="/registro">Da de alta a tu conjunto, crea tu cuenta aquí.</a></p>
+{% endblock %}

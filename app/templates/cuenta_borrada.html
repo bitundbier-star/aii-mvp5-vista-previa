@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block titulo %}Cuenta borrada{% endblock %}
+{% block contenido %}
+<div class="login-header">
+  <img src="/static/img/logo.png" alt="Administración Inteligente de Inmuebles" class="logo-login">
+</div>
+
+<h1>Se borró la cuenta de {{ nombre_conjunto }}</h1>
+
+<div class="card">
+  <p>Ya no queda nada en la plataforma. Se eliminaron:</p>
+  <ul>
+    <li>{{ resumen.propiedades }} propiedad{{ 'es' if resumen.propiedades != 1 else '' }}, con los datos de sus propietarios y residentes</li>
+    <li>{{ resumen.pagos }} pago{{ 's' if resumen.pagos != 1 else '' }} y sus comprobantes</li>
+    <li>{{ resumen.egresos }} egreso{{ 's' if resumen.egresos != 1 else '' }}</li>
+    <li>{{ resumen.proyectos }} proyecto{{ 's' if resumen.proyectos != 1 else '' }}</li>
+  </ul>
+
+  <p class="ayuda">
+    Se mandó un aviso a <strong>{{ cuenta_email }}</strong> dejando constancia de que la cuenta
+    se borró, quién lo hizo y qué contenía.
+  </p>
+
+  <p>
+    Si el conjunto quiere volver más adelante, se da de alta otra vez desde cero — pero el
+    historial anterior ya no se puede recuperar.
+  </p>
+
+  <a class="btn" href="/login">Volver al inicio</a>
+</div>
+{% endblock %}

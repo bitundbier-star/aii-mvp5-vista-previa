@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block titulo %}Administrador en turno{% endblock %}
+{% block contenido %}
+<p><a class="enlace" href="/configuracion">← Volver a configuración</a></p>
+<h1>Traspaso de administración</h1>
+
+<div class="card">
+  <p><strong>Administrador actual:</strong> {{ conjunto.admin_nombre }} ({{ conjunto.login_email }})</p>
+  <p class="ayuda">Al actualizar estos datos, se genera automáticamente una foto del estado del conjunto en este momento (cartera y últimos movimientos), y se cierra la sesión actual para que el nuevo administrador entre con sus propios datos.</p>
+</div>
+
+<div class="card">
+  <form method="post" action="/administrador/actualizar">
+    <label>Tu contraseña actual (para confirmar)</label>
+    <input type="password" name="password_actual" required>
+
+    <label>Nombre del nuevo administrador</label>
+    <input type="text" name="admin_nombre_nuevo" required>
+
+    <label>Correo de login del nuevo administrador</label>
+    <input type="email" name="login_email_nuevo" value="{{ conjunto.login_email }}" required>
+    <div class="ayuda">Por buena práctica, te recomendamos conservar el mismo correo de acceso a través de los años, en vez de cambiarlo con cada administrador — así el conjunto mantiene un solo correo de entrada a la app. Solo cámbialo si de verdad hace falta.</div>
+
+    <label>Contraseña del nuevo administrador</label>
+    <input type="password" name="password_nueva" required minlength="6">
+
+    <label>Correo de recuperación</label>
+    <input type="email" name="correo_recuperacion_nuevo" value="{{ conjunto.correo_recuperacion or '' }}" placeholder="correo de otro vecino responsable">
+    <div class="ayuda">Para el «Olvidé mi contraseña». Recomendamos que sea el de otra persona responsable de la administración, no el del nuevo administrador. Es un buen momento para revisar si sigue siendo la persona correcta.</div>
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <button type="submit">Actualizar administrador</button>
+  </form>
+</div>
+
+{% if historial %}
+<h2>Historial de traspasos</h2>
+<div class="card">
+  <table>
+    <tr><th>Fecha</th><th>De</th><th>A</th></tr>
+    {% for c in historial %}
+    <tr><td>{{ c.fecha.strftime('%d/%m/%Y %H:%M') }}</td><td>{{ c.admin_anterior }}</td><td>{{ c.admin_nuevo }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+{% endblock %}

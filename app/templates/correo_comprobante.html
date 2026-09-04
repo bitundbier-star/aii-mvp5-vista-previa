@@ -1,0 +1,19 @@
+<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
+  <h2 style="color:#1d4ed8;">Comprobante de pago</h2>
+  <p>Se registró un pago en <strong>{{ conjunto.nombre }}</strong>.</p>
+  <table style="width:100%; border-collapse: collapse; font-size: 14px;">
+    <tr><td style="padding:6px 0; color:#666;">Folio</td><td style="padding:6px 0;"><strong>{{ pago.folio }}</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Propiedad</td><td style="padding:6px 0;">{{ pago.propiedad.etiqueta }}</td></tr>
+    {% if pago.propiedad.nombre_dueno %}
+    <tr><td style="padding:6px 0; color:#666;">Propietario</td><td style="padding:6px 0;">{{ pago.propiedad.nombre_dueno }}</td></tr>
+    {% endif %}
+    <tr><td style="padding:6px 0; color:#666;">Fecha</td><td style="padding:6px 0;">{{ pago.fecha_recepcion.strftime('%d/%m/%Y') }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Concepto</td><td style="padding:6px 0;">{{ pago.concepto_legible }}</td></tr>
+    {% if pago.concepto == 'proyecto' and pago.proyecto %}
+    <tr><td style="padding:6px 0; color:#666;">Proyecto</td><td style="padding:6px 0;">{{ pago.proyecto.concepto }}</td></tr>
+    {% endif %}
+    <tr><td style="padding:6px 0; color:#666;">Método de pago</td><td style="padding:6px 0;">{{ pago.metodo_pago_legible }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Monto</td><td style="padding:6px 0;"><strong>${{ '%.2f'|format(pago.monto) }} MXN</strong></td></tr>
+  </table>
+  <p style="margin-top:16px; color:#666; font-size:12px;">El comprobante en imagen va adjunto a este correo.</p>
+</div>

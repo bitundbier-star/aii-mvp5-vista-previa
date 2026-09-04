@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block titulo %}Olvidé mi contraseña{% endblock %}
+{% block contenido %}
+<div class="login-header">
+  <img src="/static/img/logo.png" alt="Administración Inteligente de Inmuebles" class="logo-login">
+  <span class="etiqueta-modulo">Auto-administración</span>
+</div>
+<h1>¿Olvidaste tu contraseña?</h1>
+
+<div class="card">
+  {% if enviado %}
+  <div class="aviso exito">
+    Si ese correo de login tiene una cuenta, ya se mandó un enlace para restablecer la contraseña —
+    al correo de la cuenta y, si está capturado, también al correo de recuperación. El enlace vence
+    en una hora.
+  </div>
+  <p class="ayuda">
+    ¿No te llegó? Revisa spam, o pídele a quien tenga acceso al correo de la cuenta o al de
+    recuperación que lo busque ahí — el enlace nunca se manda al correo de login, porque si
+    perdiste el acceso a ese correo tampoco te serviría.
+  </p>
+  {% else %}
+  <p class="ayuda">
+    Te pedimos el correo con el que entras (login). El enlace para elegir una contraseña nueva no
+    llega ahí, sino al correo de la cuenta y, si está capturado, al correo de recuperación — así,
+    si perdiste el celular donde tenías las dos cosas, alguien más puede ayudarte a recuperar el
+    acceso.
+  </p>
+  <form method="post" action="/recuperar">
+    <label>Correo de login</label>
+    <input type="email" name="login_email" required>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <button type="submit">Mandar enlace de recuperación</button>
+  </form>
+  {% endif %}
+</div>
+<p style="text-align:center; font-size:14px;"><a class="enlace" href="/login">Volver a iniciar sesión</a></p>
+{% endblock %}

@@ -1,0 +1,16 @@
+{# `egreso` puede ser el objeto Egreso o, cuando se canceló, un diccionario
+   con los datos que tenía antes de borrarse. Por eso todo se accede con
+   notación de atributo/clave que Jinja resuelve igual en ambos casos. #}
+<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
+  <h2 style="color:{{ '#b3261e' if accion == 'cancelado' else '#1d4ed8' }};">Egreso {{ accion }}</h2>
+  <p>Se {{ accion }} un egreso en <strong>{{ conjunto.nombre }}</strong>. Este aviso es automático: sirve para que quede constancia de todo movimiento de dinero.</p>
+  <table style="width:100%; border-collapse: collapse; font-size: 14px;">
+    <tr><td style="padding:6px 0; color:#666;">Concepto</td><td style="padding:6px 0;"><strong>{{ egreso.concepto }}</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Monto</td><td style="padding:6px 0;"><strong>${{ '%.2f'|format(egreso.monto) }} MXN</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Fecha</td><td style="padding:6px 0;">{{ egreso.fecha.strftime('%d/%m/%Y') }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Registrado por</td><td style="padding:6px 0;">{{ conjunto.admin_nombre }}</td></tr>
+  </table>
+  {% if accion == 'cancelado' %}
+  <p style="margin-top:16px; color:#666; font-size:12px;">Al cancelarse, este monto vuelve a estar disponible en el saldo acumulado del conjunto.</p>
+  {% endif %}
+</div>
