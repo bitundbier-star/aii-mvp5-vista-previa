@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block titulo %}Proyectos{% endblock %}
+{% block contenido %}
+<h1>Cuotas extraordinarias / proyectos</h1>
+
+<button type="button" class="btn" onclick="alternarFormulario()">+ Nuevo proyecto</button>
+
+{% if error %}
+<div class="aviso error-aviso" style="margin-top:14px;">
+  Ese proyecto ya tiene pagos registrados, así que no se puede eliminar: los comprobantes que ya recibieron los vecinos quedarían sin respaldo.
+  Si el proyecto ya terminó, edítalo y márcalo como <strong>Cerrado</strong>.
+</div>
+{% endif %}
+
+<div class="card" id="form-proyecto" style="display:none; margin-top:16px;">
+  <h2 style="margin-top:0">Nuevo proyecto</h2>
+  <form method="post" action="/proyectos/nuevo">
+    <label>Concepto</label>
+    <input type="text" name="concepto" required placeholder="p. ej. Impermeabilización de azoteas">
+    <label>Descripción (opcional)</label>
+    <textarea name="descripcion"></textarea>
+    <label>Monto total del proyecto</label>
+    <div class="campo-moneda">
+      <span>$</span>
+      <input type="number" step="0.01" min="0" name="monto_total" required placeholder="0.00">
+    </div>
+    <p class="ayuda">El monto por propiedad se calcula solo: monto total ÷ propiedades activas ({{ conjunto.propiedades|selectattr('activo')|list|length }}). El centavo de redondeo lo absorbe una sola propiedad para que la suma cuadre exacta.</p>
+    <label>Fecha límite de pago (opcional)</label>
+    <input type="date" name="fecha_limite_pago">
+    <label>Estado</label>
+    <select name="estado">
+      {% for clave, etiqueta in estados %}
+      <option value="{{ clave }}">{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+    <label>Comentario (opcional)</label>
+    <textarea name="comentario_estado" placeholder="Notas sobre el estado del proyecto"></textarea>
+    <button type="submit">Registrar proyecto</button>
+  </form>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <table>
+    <tr><th>Concepto</th><th>Monto total</th><th>Por propiedad</th><th>Recaudado</th><th>Fecha límite</th><th>Estado</th><th></th></tr>
+    {% for pr in proyectos %}
+    <tr>
+      <td>
+        {{ pr.concepto }}
+        {% if pr.comentario_estado %}<div class="ayuda">{{ pr.comentario_estado }}</div>{% endif %}
+      </td>
+      <td>${{ '%.2f'|format(pr.monto_total) }}</td>
+      <td>${{ '%.2f'|format(pr.monto_por_propiedad) }}</td>
+      <td>${{ '%.2f'|format(pr.total_recaudado) }}</td>
+      <td>{{ pr.fecha_limite_pago.strftime('%d/%m/%Y') if pr.fecha_limite_pago else '—' }}</td>
+      <td><span class="badge {{ 'ok' if pr.estado == 'cerrado' else ('progreso' if pr.estado == 'en_proceso' else 'neutro') }}">{{ estados_dict.get(pr.estado, pr.estado) }}</span></td>
+      <td class="acciones">
+        <a class="enlace" href="/proyectos/{{ pr.id }}/editar">Editar</a>
+        {% if pr.tiene_pagos %}
+        <span class="ayuda" title="Tiene {{ pr.pagos|length }} pago(s) registrado(s)">No se puede eliminar</span>
+        {% else %}
+        <form method="post" action="/proyectos/{{ pr.id }}/eliminar" style="display:inline"
+              onsubmit="return confirm('¿Eliminar el proyecto {{ pr.concepto }}? Esta acción no se puede deshacer.')">
+          <button type="submit" class="enlace-boton peligro">Eliminar</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No hay proyectos registrados.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<script>
+function alternarFormulario() {
+  var f = document.getElementById('form-proyecto');
+  f.style.display = (f.style.display === 'none') ? 'block' : 'none';
+}
+</script>
+{% endblock %}

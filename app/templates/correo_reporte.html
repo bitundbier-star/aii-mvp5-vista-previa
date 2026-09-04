@@ -1,0 +1,64 @@
+<div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; color:#1a1a1a;">
+  <h2 style="color:#1d4ed8; margin-bottom:4px;">Reporte de {{ reporte.periodo }} — {{ conjunto.nombre }}</h2>
+  <p style="color:#666; margin-top:0; font-size:13px;">
+    Del {{ reporte.primer_dia.strftime('%d/%m/%Y') }} al {{ reporte.ultimo_dia.strftime('%d/%m/%Y') }}
+  </p>
+
+  <table style="width:100%; border-collapse:collapse; margin:18px 0 6px;">
+    <tr>
+      <td style="width:58%; border:2px solid #0a7d3c; border-radius:8px; padding:14px; text-align:center;">
+        <div style="font-size:12px; color:#666;">Saldo al cierre del mes</div>
+        <div style="font-size:26px; font-weight:700; color:#0a7d3c;">{{ reporte.saldo_cierre|dinero }}</div>
+      </td>
+      <td style="width:4%"></td>
+      <td style="border:1px solid #cbd5e1; border-radius:8px; padding:14px; text-align:center;">
+        <div style="font-size:12px; color:#666;">Saldo al inicio del mes</div>
+        <div style="font-size:17px; font-weight:600;">{{ reporte.saldo_apertura|dinero }}</div>
+      </td>
+    </tr>
+  </table>
+
+  <table style="width:100%; border-collapse: collapse; font-size: 14px; margin-bottom: 22px;">
+    <tr><td style="padding:6px 0; color:#666;">Ingresos reales del mes</td><td style="padding:6px 0; text-align:right;">{{ reporte.ingresos_reales|dinero }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Egresos del mes</td><td style="padding:6px 0; text-align:right;">{{ reporte.total_egresos|dinero }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;"><strong>Flujo de caja del mes</strong></td><td style="padding:6px 0; text-align:right;"><strong>{{ reporte.flujo_caja|dinero }}</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Cartera por cobrar</td><td style="padding:6px 0; text-align:right;">{{ reporte.cartera_total|dinero }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Propiedades al corriente</td><td style="padding:6px 0; text-align:right;">{{ reporte.propiedades_al_corriente }} de {{ reporte.propiedades_al_corriente + reporte.propiedades_con_adeudo }}</td></tr>
+  </table>
+
+  {% if reporte.egresos_mes %}
+  <h3 style="font-size:15px;">Egresos de {{ reporte.periodo }}</h3>
+  <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+    {% for e in reporte.egresos_mes %}
+    <tr>
+      <td style="padding:5px 0; border-top:1px solid #eee;">{{ e.fecha.strftime('%d/%m') }} · {{ e.concepto }}</td>
+      <td style="padding:5px 0; border-top:1px solid #eee; text-align:right;">{{ e.monto|dinero }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <td style="padding:7px 0; border-top:2px solid #1a1a1a;"><strong>Total</strong></td>
+      <td style="padding:7px 0; border-top:2px solid #1a1a1a; text-align:right;"><strong>{{ reporte.total_egresos|dinero }}</strong></td>
+    </tr>
+  </table>
+  {% endif %}
+
+  <h3 style="font-size:15px;">Por propiedad</h3>
+  <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+    <tr style="color:#666; text-align:left;">
+      <th style="padding-bottom:5px;">Propiedad</th>
+      <th style="padding-bottom:5px; text-align:right;">Pagó en el mes</th>
+      <th style="padding-bottom:5px; text-align:right;">Saldo</th>
+      <th style="padding-bottom:5px; text-align:right;">Estatus</th>
+    </tr>
+    {% for e in reporte.estado_propiedades %}
+    <tr>
+      <td style="padding:4px 0; border-top:1px solid #eee;">{{ e.propiedad.etiqueta }}</td>
+      <td style="padding:4px 0; border-top:1px solid #eee; text-align:right;">{{ e.pagado_en_el_mes|dinero }}</td>
+      <td style="padding:4px 0; border-top:1px solid #eee; text-align:right; color:{{ '#b3261e' if e.vista.clave == 'debe' else '#0a7d3c' }};">{{ e.vista.monto }}</td>
+      <td style="padding:4px 0; border-top:1px solid #eee; text-align:right; color:{{ '#b3261e' if e.vista.clave == 'debe' else '#0a7d3c' }};">{{ e.vista.palabra }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <p style="margin-top:22px; color:#999; font-size:12px;">Generado el {{ reporte.generado_en.strftime('%d/%m/%Y %H:%M') }}.</p>
+</div>

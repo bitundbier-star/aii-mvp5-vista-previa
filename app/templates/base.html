@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Administración del conjunto{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+{% if modo_demo %}
+<div class="cinta-demo">
+  <strong>Versión de demostración.</strong>
+  Los datos que ves son de ejemplo, de un conjunto que no existe.
+  Puedes moverte con confianza: nada de lo que hagas aquí afecta a nadie, y todo se reinicia cada tanto.
+  <span class="cinta-demo-ojo">No captures información real de personas.</span>
+</div>
+{% endif %}
+{% if conjunto %}
+<header class="topbar">
+  <div class="marca-wrap">
+    <a href="/dashboard"><img src="/static/img/logo.png" alt="AII" class="logo-icono"></a>
+    <div class="marca-texto">
+      <a class="marca" href="/dashboard">AII · Vecinos</a><br>
+      <span class="conjunto-nombre">{{ conjunto.nombre }} — {{ conjunto.admin_nombre }}</span>
+    </div>
+  </div>
+  <a class="btn secundario pequeno" href="/logout">Salir</a>
+</header>
+<nav class="tabs">
+  <a href="/dashboard" class="{{ 'activo' if request.url.path == '/dashboard' else '' }}">Inicio</a>
+  <a href="/pagos" class="{{ 'activo' if request.url.path.startswith('/pagos') or request.url.path.startswith('/comprobantes') else '' }}">Pagos</a>
+  <a href="/cartera" class="{{ 'activo' if request.url.path == '/cartera' else '' }}">Cartera</a>
+  <a href="/egresos" class="{{ 'activo' if request.url.path == '/egresos' else '' }}">Egresos</a>
+  <a href="/reporte" class="{{ 'activo' if request.url.path == '/reporte' else '' }}">Reporte</a>
+  <a href="/proyectos" class="{{ 'activo' if request.url.path == '/proyectos' else '' }}">Proyectos</a>
+  <a href="/configuracion" class="{{ 'activo' if request.url.path in ('/configuracion', '/administrador', '/propiedades') else '' }}">Configuración</a>
+</nav>
+{% endif %}
+<div class="contenedor{{ ' contenedor-angosto' if not conjunto else '' }}">
+  {% block contenido %}{% endblock %}
+</div>
+<footer class="pie">MVP — Administración Inteligente de Inmuebles</footer>
+<script>
+// Bloque de saldo inicial: las tres opciones son excluyentes, y el campo de
+// monto solo se habilita en la que está elegida. Al enviar, el monto de la
+// opción activa se copia al campo oculto para que el servidor reciba un
+// número y no tenga que adivinar cuál de los dos venía lleno.
+document.querySelectorAll('.saldo-bloque').forEach(function (bloque) {
+  var opciones = bloque.querySelectorAll('.saldo-opcion');
+  var oculto = bloque.querySelector('input[name="monto_saldo"]');
+
+  function sincronizar() {
+    opciones.forEach(function (op) {
+      var radio = op.querySelector('input[type=radio]');
+      var monto = op.querySelector('input[type=number]');
+      op.classList.toggle('activa', radio.checked);
+      if (monto) {
+        monto.disabled = !radio.checked;
+        if (!radio.checked) monto.value = '';
+      }
+    });
+    var activa = bloque.querySelector('.saldo-opcion.activa input[type=number]');
+    if (oculto) oculto.value = activa && activa.value ? activa.value : '0';
+  }
+
+  opciones.forEach(function (op) {
+    // Un input deshabilitado se traga el clic y no lo deja llegar a la
+    // tarjeta, así que picarle al campo gris —que es lo primero que uno
+    // hace— no seleccionaría nada. Por eso el clic se atiende en la opción
+    // completa y el CSS le quita los eventos al campo deshabilitado.
+    op.addEventListener('click', function () {
+      op.querySelector('input[type=radio]').checked = true;
+      sincronizar();
+      var monto = op.querySelector('input[type=number]');
+      if (monto) monto.focus();
+    });
+    var monto = op.querySelector('input[type=number]');
+    if (monto) monto.addEventListener('input', sincronizar);
+  });
+
+  var form = bloque.closest('form');
+  if (form) form.addEventListener('submit', sincronizar);
+  sincronizar();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block titulo %}Dar de alta el conjunto{% endblock %}
+{% block contenido %}
+<div style="text-align:center; margin-bottom:18px;">
+  <img src="/static/img/logo-con-nombre.png" alt="AII" class="logo-alta">
+  <p class="ayuda" style="margin-top:6px;">Auto-administración</p>
+</div>
+
+<h1>Dar de alta tu conjunto habitacional</h1>
+<div class="card">
+  <form method="post" action="/registro">
+    <label>Nombre del conjunto</label>
+    <input type="text" name="nombre_conjunto" required placeholder="p. ej. Privada Los Encinos">
+
+    <label>Dirección del conjunto</label>
+    <input type="text" name="direccion" placeholder="Calle, número, colonia, ciudad">
+
+    <label>Tu nombre (administrador en turno)</label>
+    <input type="text" name="admin_nombre" required>
+
+    <label>Correo con el que vas a iniciar sesión</label>
+    <input type="email" name="login_email" required placeholder="tucorreo@gmail.com">
+    <div class="ayuda">Te recomendamos usar una cuenta de <strong>Gmail</strong>: es gratis, la abres desde cualquier teléfono y es la que mejor funciona para recibir los comprobantes y reportes.</div>
+
+    <label>Contraseña</label>
+    <input type="password" name="password" required minlength="6">
+
+    <label>Correo de la cuenta (respaldo)</label>
+    <input type="email" name="cuenta_email" required placeholder="puede ser el mismo correo de arriba">
+    <div class="ayuda">A este correo llegan siempre los comprobantes, los avisos de egresos y el reporte mensual, sin importar quién esté administrando. Puedes cambiarlo cuando quieras.</div>
+
+    <label>Monto mensual de mantenimiento (por propiedad)</label>
+    <div class="campo-moneda">
+      <span>$</span>
+      <input type="number" step="0.01" min="0" name="monto_mensual" required placeholder="0.00">
+    </div>
+
+    <label>¿Cada cuánto te preguntamos si el monto sigue vigente?</label>
+    <select name="monto_revision_meses">
+      {% for meses, etiqueta in opciones_revision %}
+      <option value="{{ meses }}" {{ 'selected' if meses == 12 else '' }}>{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+    <div class="ayuda">Esta pregunta solo aparece ahora, al dar de alta el conjunto. Después puedes cambiar la respuesta cuando quieras desde Configuración.</div>
+
+    <label>¿Qué día del mes vence el pago del mantenimiento?</label>
+    <div class="campo-moneda">
+      <span>Día</span>
+      <input type="number" name="fecha_limite_pago" min="1" max="31" value="11" required>
+    </div>
+    <div class="ayuda">Mientras no pase ese día, el mes en curso <strong>no</strong> cuenta como adeudo — el día 3 nadie debe todavía el mes que apenas empieza. Lo puedes cambiar después desde Configuración.</div>
+
+    <label>Saldo acumulado del conjunto al día de hoy</label>
+    <div class="campo-moneda">
+      <span>$</span>
+      <input type="number" step="0.01" min="0" name="saldo_inicial" value="0.00">
+    </div>
+    <div class="ayuda">El dinero que el conjunto ya tiene guardado hoy. A partir de aquí la cuenta corre sola: cada mes se le suma lo que entra y se le resta lo que sale.</div>
+
+    <label>¿Cuántas propiedades deben pagar mantenimiento?</label>
+    <input type="number" name="num_propiedades" required min="1">
+    <div class="ayuda">Se crean numeradas del 1 en adelante. Enseguida podrás cambiarle el número a cada una por el que de verdad usan (101, A1, B-3) y capturar los datos de su dueño.</div>
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <button type="submit">Crear cuenta del conjunto</button>
+  </form>
+</div>
+<p style="text-align:center; font-size:14px;">¿Ya tienes cuenta? <a class="enlace" href="/login">Iniciar sesión</a></p>
+{% endblock %}

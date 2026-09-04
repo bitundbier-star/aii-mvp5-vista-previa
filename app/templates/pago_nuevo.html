@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block titulo %}Registrar pago{% endblock %}
+{% block contenido %}
+<h1>Registrar pago recibido</h1>
+
+<div class="card">
+  <form method="post" action="/pagos/nuevo">
+    <label>Propiedad</label>
+    <select name="propiedad_id" required>
+      {% for p in propiedades %}
+      <option value="{{ p.id }}">{{ p.etiqueta }}{% if p.nombre_dueno %} — {{ p.nombre_dueno }}{% endif %}</option>
+      {% endfor %}
+    </select>
+
+    <label>Fecha de recepción</label>
+    <input type="date" name="fecha_recepcion" value="{{ hoy }}" required>
+
+    <label>Monto recibido</label>
+    <div class="campo-moneda">
+      <span>$</span>
+      <input type="number" step="0.01" min="0" name="monto" required placeholder="0.00">
+    </div>
+
+    <label>Concepto</label>
+    <select name="concepto" id="concepto" required onchange="alternarProyecto()">
+      {% for clave, etiqueta in conceptos %}
+      <option value="{{ clave }}">{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+
+    <div id="bloque-proyecto" style="display:none;">
+      <label>¿Cuál proyecto?</label>
+      <select name="proyecto_id" id="proyecto_id">
+        {% for pr in proyectos %}
+        <option value="{{ pr.id }}">{{ pr.concepto }}</option>
+        {% else %}
+        <option value="">No hay proyectos en curso</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <label>Método de pago</label>
+    <select name="metodo_pago" required>
+      {% for clave, etiqueta in metodos %}
+      <option value="{{ clave }}">{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+    <div class="ayuda">Es solo para tu registro: no cambia ningún cálculo de la cartera.</div>
+
+    <label>Enviar el comprobante también al vecino (opcional)</label>
+    <input type="email" name="correo_destino" placeholder="correo del vecino que pagó">
+    <div class="ayuda">El comprobante se manda siempre y automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}). Esto es por si además quieres mandárselo a quien pagó.</div>
+
+    <button type="submit">Registrar y generar comprobante</button>
+  </form>
+</div>
+
+<div class="aviso info">
+  No hace falta decir a qué mes corresponde el pago: la deuda es la deuda y el sistema lo aplica al adeudo más viejo primero, como los bancos.
+  Ten en cuenta que solo <strong>Mantenimiento</strong> y <strong>Proyecto</strong> bajan la deuda de la propiedad; Gas, Agua y Otros se registran como ingreso del conjunto pero no reducen su saldo.
+</div>
+
+<script>
+function alternarProyecto() {
+  var concepto = document.getElementById('concepto').value;
+  document.getElementById('bloque-proyecto').style.display = (concepto === 'proyecto') ? 'block' : 'none';
+}
+alternarProyecto();
+</script>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block titulo %}Pagos{% endblock %}
+{% block contenido %}
+<h1>Pagos registrados</h1>
+<a class="btn" href="/pagos/nuevo">+ Registrar pago</a>
+
+<div class="card" style="margin-top:16px;">
+  <h2 style="margin-top:0">Filtros</h2>
+  <p class="ayuda">Se pueden usar todos juntos: por ejemplo, los pagos de mantenimiento de la casa 12 en julio.</p>
+  <form method="get" action="/pagos" class="filtros">
+    <div>
+      <label>Folio</label>
+      <input type="text" name="folio" value="{{ filtros.folio }}" placeholder="AII-0001-00007">
+    </div>
+    <div>
+      <label>Propiedad</label>
+      <select name="propiedad_id">
+        <option value="">Todas</option>
+        {% for p in propiedades %}
+        <option value="{{ p.id }}" {{ 'selected' if filtros.propiedad_id == p.id|string else '' }}>{{ p.etiqueta }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Concepto</label>
+      <select name="concepto">
+        <option value="">Todos</option>
+        {% for clave, etiqueta in conceptos %}
+        <option value="{{ clave }}" {{ 'selected' if filtros.concepto == clave else '' }}>{{ etiqueta }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Desde</label>
+      <input type="date" name="desde" value="{{ filtros.desde }}">
+    </div>
+    <div>
+      <label>Hasta</label>
+      <input type="date" name="hasta" value="{{ filtros.hasta }}">
+    </div>
+    <div class="filtros-botones">
+      <button type="submit" class="pequeno">Filtrar</button>
+      <a class="btn secundario pequeno" href="/pagos">Limpiar</a>
+    </div>
+  </form>
+</div>
+
+{% if not ver_todo and not filtros.desde %}
+<div class="aviso info">
+  Mostrando los últimos {{ meses_vista }} meses. El historial completo sigue guardado: nada se borra ni se esconde.
+  <a class="enlace" href="/pagos?todos=1{% if filtros.folio %}&folio={{ filtros.folio }}{% endif %}{% if filtros.propiedad_id %}&propiedad_id={{ filtros.propiedad_id }}{% endif %}{% if filtros.concepto %}&concepto={{ filtros.concepto }}{% endif %}">Ver todo el historial ({{ total_pagos }} pagos)</a>
+</div>
+{% elif ver_todo %}
+<div class="aviso info">Mostrando el historial completo. <a class="enlace" href="/pagos">Volver a los últimos {{ meses_vista }} meses</a></div>
+{% endif %}
+
+<div class="card">
+  <table>
+    <tr><th>Folio</th><th>Propiedad</th><th>Fecha</th><th>Concepto</th><th>Método</th><th>Monto</th><th></th></tr>
+    {% for p in pagos %}
+    <tr>
+      <td>{{ p.folio }}</td>
+      <td>{{ p.propiedad.etiqueta }}</td>
+      <td>{{ p.fecha_recepcion.strftime('%d/%m/%Y') }}</td>
+      <td>
+        {{ p.concepto_legible }}
+        {% if not p.abona_a_cartera %}<div class="ayuda">No baja la deuda</div>{% endif %}
+      </td>
+      <td class="ayuda">{{ p.metodo_pago_legible }}</td>
+      <td>${{ '%.2f'|format(p.monto) }}</td>
+      <td><a class="enlace" href="/comprobantes/{{ p.folio }}">ver</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">{% if filtros_activos or not ver_todo %}Ningún pago coincide con estos filtros.{% else %}Todavía no hay pagos registrados.{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

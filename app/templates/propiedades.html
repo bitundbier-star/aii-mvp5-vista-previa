@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block titulo %}Propiedades{% endblock %}
+{% block contenido %}
+<h1>Información de cada propiedad</h1>
+
+{% if bienvenida %}
+<div class="aviso exito">Cuenta creada. Completa los datos de cada propiedad antes de empezar a registrar pagos. De aquí en adelante, las propiedades se consultan y editan desde <strong>Configuración</strong>.</div>
+{% endif %}
+
+{% if error %}
+<div class="aviso error-aviso">{{ error }}</div>
+{% endif %}
+
+{% if guardada %}
+<div class="aviso exito">Propiedad guardada.</div>
+{% endif %}
+
+{% set incompletas = propiedades | rejectattr('ficha_completa') | list %}
+{% if incompletas %}
+<div class="aviso">Faltan datos de {{ incompletas|length }} propiedad{{ 'es' if incompletas|length != 1 else '' }}: {% for p in incompletas %}{{ p.etiqueta }}{% if not loop.last %}, {% endif %}{% endfor %}.</div>
+{% endif %}
+
+<p class="ayuda">Solo los campos marcados con <span class="obligatorio">*</span> son obligatorios. Para agregar una propiedad nueva más adelante (si el conjunto crece), ve a <a class="enlace" href="/configuracion">Configuración</a>.</p>
+
+{% for p in propiedades %}
+{% set est = estado_saldo(p.saldo_inicial) %}
+<div class="card {{ 'ficha-pendiente' if not p.ficha_completa else '' }}" id="propiedad-{{ p.id }}">
+  <form method="post" action="/propiedades/{{ p.id }}/actualizar">
+
+    <div class="fila-campos">
+      <div>
+        <label>Tipo de propiedad <span class="obligatorio">*</span></label>
+        <select name="tipo" required>
+          {% for clave, etiqueta in tipos %}
+          <option value="{{ clave }}" {{ 'selected' if p.tipo == clave else '' }}>{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Número <span class="obligatorio">*</span></label>
+        <input type="text" name="numero" value="{{ p.numero }}" maxlength="20" required>
+        <div class="ayuda">Editable. Admite letras, números y símbolos: 101, A1, B-3, PB.</div>
+      </div>
+    </div>
+
+    <label>Nombre completo del propietario <span class="obligatorio">*</span></label>
+    <input type="text" name="nombre_dueno" value="{{ p.nombre_dueno or '' }}" required>
+
+    <div class="fila-campos">
+      <div>
+        <label>Celular del propietario</label>
+        <input type="tel" name="celular_dueno" value="{{ p.celular_dueno or '' }}" placeholder="+52 55 1234 5678" pattern="^\+?[0-9\s().-]*$">
+        <div class="ayuda">Si es número de México, iniciar con +52.</div>
+      </div>
+      <div>
+        <label>Correo electrónico del propietario</label>
+        <input type="email" name="email_dueno" value="{{ p.email_dueno or '' }}" placeholder="nombre@correo.com">
+      </div>
+    </div>
+
+    <label>Nombre del residente o inquilino</label>
+    <input type="text" name="nombre_residente" value="{{ p.nombre_residente or '' }}" placeholder="Solo si es distinto del propietario">
+
+    <div class="fila-campos">
+      <div>
+        <label>Celular del residente o inquilino</label>
+        <input type="tel" name="celular_residente" value="{{ p.celular_residente or '' }}" placeholder="+52 55 1234 5678" pattern="^\+?[0-9\s().-]*$">
+        <div class="ayuda">Si es número de México, iniciar con +52.</div>
+      </div>
+      <div>
+        <label>Correo electrónico del residente o inquilino</label>
+        <input type="email" name="email_residente" value="{{ p.email_residente or '' }}" placeholder="nombre@correo.com">
+      </div>
+    </div>
+
+    <label>Notas</label>
+    <textarea name="notas" placeholder="Si lo dejas vacío se guarda como N/A">{{ '' if p.notas == 'N/A' else p.notas }}</textarea>
+
+    {% include "_saldo_inicial.html" %}
+
+    <button type="submit" class="pequeno secundario">Guardar</button>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

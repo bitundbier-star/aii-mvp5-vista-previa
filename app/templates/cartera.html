@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block titulo %}Cartera{% endblock %}
+{% block contenido %}
+<h1>Estado por propiedad</h1>
+
+<div class="card">
+  <h2 style="margin-top:0">Filtros</h2>
+  <p class="ayuda">Se pueden usar los dos a la vez: por ejemplo, una propiedad concreta y solo si tiene adeudo.</p>
+  <form method="get" action="/cartera" class="filtros">
+    <div>
+      <label>Propiedad</label>
+      <select name="propiedad_id">
+        <option value="">Todas</option>
+        {% for p in propiedades %}
+        <option value="{{ p.id }}" {{ 'selected' if filtros.propiedad_id == p.id|string else '' }}>{{ p.etiqueta }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Estatus</label>
+      <select name="estatus">
+        <option value="">Todos</option>
+        <option value="con_adeudo" {{ 'selected' if filtros.estatus == 'con_adeudo' else '' }}>Con adeudo</option>
+        <option value="al_corriente" {{ 'selected' if filtros.estatus == 'al_corriente' else '' }}>Al corriente</option>
+      </select>
+    </div>
+    <div class="filtros-botones">
+      <button type="submit" class="pequeno">Filtrar</button>
+      <a class="btn secundario pequeno" href="/cartera">Limpiar</a>
+    </div>
+  </form>
+</div>
+
+{% if filtros_activos %}
+<div class="aviso info">Mostrando {{ estado|length }} de {{ total_propiedades }} propiedades.</div>
+{% endif %}
+
+<div class="card">
+  <table>
+    <tr><th>Propiedad</th><th>Esperado</th><th>Pagado</th><th>Saldo</th><th>Estatus</th></tr>
+    {% for e in estado %}
+    <tr>
+      <td>
+        {{ e.propiedad.etiqueta }}
+        {% if e.propiedad.nombre_dueno %}<div class="ayuda">{{ e.propiedad.nombre_dueno }}</div>{% endif %}
+      </td>
+      <td class="num">
+        {{ e.total_esperado|dinero }}
+        <div class="ayuda">
+          Mantenimiento: {{ e.esperado_mantenimiento|dinero }}
+          {%- if e.saldo_inicial > 0 %} · Saldo inicial: {{ e.saldo_inicial|dinero }}{% endif %}
+          {%- for d in e.detalle_proyectos %} · {{ d.nombre }}: {{ d.monto|dinero }}{% endfor %}
+        </div>
+      </td>
+      <td class="num">
+        {{ e.total_pagado|dinero }}
+        {% if e.otros_ingresos %}<div class="ayuda">+ {{ e.otros_ingresos|dinero }} en gas/agua/otros (no bajan la deuda)</div>{% endif %}
+      </td>
+      <td class="num {{ e.vista.clase }}">
+        <strong>{{ e.vista.monto }}</strong>
+        <div class="ayuda">{{ e.vista.palabra|lower }}</div>
+      </td>
+      <td>
+        <span class="etiqueta-saldo {{ e.vista.clase }}">{{ e.vista.palabra }}</span>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5">Ninguna propiedad coincide con estos filtros.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<p class="ayuda">
+  "Esperado" incluye el saldo inicial capturado al alta, el mantenimiento acumulado desde que arrancó la cuenta (con el monto vigente en cada mes) y las cuotas de los proyectos, desglosadas por nombre.
+  Los pagos se aplican al adeudo más viejo primero. Solo Mantenimiento y Proyecto bajan la deuda: Gas, Agua y Otros entran al saldo acumulado del conjunto pero no reducen el saldo de la propiedad. «Al corriente» incluye a quien no debe nada y a quien pagó por adelantado.
+</p>
+{% endblock %}

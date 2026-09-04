@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reporte {{ reporte.periodo }} — {{ conjunto.nombre }}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    /* Versión limpia del reporte para guardarla como PDF desde el propio
+       navegador. Se hizo así a propósito: no agrega ninguna librería ni costo
+       de despliegue.
+
+       El contenido es el mismo include que la pantalla (_reporte_cuerpo.html):
+       lo único que cambia aquí es la presentación. Si el PDF dijera una cosa
+       y la pantalla otra, el que circula entre los vecinos es el PDF. */
+    body { background: #fff; padding: 30px; }
+    .hoja { max-width: 840px; margin: 0 auto; }
+    header.impresion {
+      display: flex; align-items: center; gap: 18px;
+      border-bottom: 2px solid #e5e5e5; padding-bottom: 18px; margin-bottom: 6px;
+    }
+    header.impresion img { height: 44px; }
+    header.impresion h1 { font-size: 22px; margin: 0; }
+    header.impresion .sub { color: #666; font-size: 13px; margin: 4px 0 0; }
+    .card { border: 1px solid #e5e5e5; box-shadow: none; padding: 4px 0 0; border: 0; }
+    .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: #666; }
+    .no-imprimir { margin-bottom: 20px; }
+    .no-imprimir button {
+      background: #1d4ed8; color: #fff; border: 0; border-radius: 8px;
+      padding: 10px 18px; font-size: 14px; cursor: pointer;
+    }
+    footer.impresion {
+      margin-top: 30px; padding-top: 14px; border-top: 1px solid #e5e5e5;
+      color: #999; font-size: 11px;
+    }
+    @media print {
+      .no-imprimir { display: none; }
+      body { padding: 0; }
+      h2 { page-break-after: avoid; }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; }
+      .saldos-par { page-break-inside: avoid; }
+      .grid-stats { grid-template-columns: repeat(3, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<div class="hoja">
+  <div class="no-imprimir">
+    <button onclick="window.print()">Guardar como PDF / Imprimir</button>
+  </div>
+
+  <header class="impresion">
+    <img src="/static/img/logo-con-nombre.png" alt="AII">
+    <div>
+      <h1>Reporte mensual — {{ reporte.periodo }}</h1>
+      <p class="sub">{{ conjunto.nombre }} · Administra {{ conjunto.admin_nombre }}</p>
+    </div>
+  </header>
+
+  {% include "_reporte_cuerpo.html" %}
+
+  <footer class="impresion">
+    Del {{ reporte.primer_dia.strftime('%d/%m/%Y') }} al {{ reporte.ultimo_dia.strftime('%d/%m/%Y') }} ·
+    Generado el {{ reporte.generado_en.strftime('%d/%m/%Y a las %H:%M') }} ·
+    Administración Inteligente de Inmuebles
+  </footer>
+</div>
+</body>
+</html>

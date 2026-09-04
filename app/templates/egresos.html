@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block titulo %}Egresos{% endblock %}
+{% block contenido %}
+<h1>Egresos</h1>
+
+<div class="grid-stats">
+  <div class="stat"><div class="valor">{{ egresos_del_mes|dinero }}</div><div class="etiqueta">Egresos mensuales</div></div>
+  <div class="stat positivo"><div class="valor">{{ saldo_acumulado|dinero }}</div><div class="etiqueta">Saldo acumulado del conjunto</div></div>
+</div>
+
+<button type="button" class="btn" onclick="alternarFormulario()">+ Registrar egreso</button>
+
+<div class="card" id="form-egreso" style="display:none; margin-top:16px;">
+  <h2 style="margin-top:0">Nuevo egreso</h2>
+  <form method="post" action="/egresos/nuevo" enctype="multipart/form-data">
+    <label>Concepto</label>
+    <input type="text" name="concepto" required placeholder="p. ej. pago a empresa de limpieza">
+    <label>Monto</label>
+    <div class="campo-moneda">
+      <span>$</span>
+      <input type="number" step="0.01" min="0" name="monto" required placeholder="0.00">
+    </div>
+    <label>Fecha</label>
+    <input type="date" name="fecha" value="{{ hoy }}" required>
+    <label>Comprobante o factura (opcional)</label>
+    <input type="file" name="comprobante" accept="image/*,application/pdf">
+    <button type="submit">Registrar egreso</button>
+  </form>
+  <p class="ayuda">Cada egreso se avisa automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}), para que quede constancia de que alguien sacó dinero.</p>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <table>
+    <tr><th>Fecha</th><th>Concepto</th><th>Monto</th><th>Respaldo</th><th></th></tr>
+    {% for e in egresos %}
+    <tr>
+      <td>{{ e.fecha.strftime('%d/%m/%Y') }}</td>
+      <td>{{ e.concepto }}</td>
+      <td>${{ '%.2f'|format(e.monto) }}</td>
+      <td>{% if e.comprobante_path %}<a class="enlace" href="/static/{{ e.comprobante_path }}" target="_blank">ver</a>{% else %}—{% endif %}</td>
+      <td class="acciones">
+        <a class="enlace" href="/egresos?editar={{ e.id }}#egreso-{{ e.id }}">Editar</a>
+        <form method="post" action="/egresos/{{ e.id }}/eliminar" style="display:inline"
+              onsubmit="return confirm('¿Cancelar el egreso &quot;{{ e.concepto }}&quot; por ${{ '%.2f'|format(e.monto) }}? El dinero vuelve al saldo acumulado del conjunto.')">
+          <button type="submit" class="enlace-boton peligro">Cancelar</button>
+        </form>
+      </td>
+    </tr>
+    {% if editar_id == e.id|string %}
+    <tr id="egreso-{{ e.id }}">
+      <td colspan="5">
+        <form method="post" action="/egresos/{{ e.id }}/editar" enctype="multipart/form-data" class="form-inline-editar">
+          <label>Concepto</label>
+          <input type="text" name="concepto" value="{{ e.concepto }}" required>
+          <label>Monto</label>
+          <div class="campo-moneda">
+            <span>$</span>
+            <input type="number" step="0.01" min="0" name="monto" value="{{ '%.2f'|format(e.monto) }}" required>
+          </div>
+          <label>Fecha</label>
+          <input type="date" name="fecha" value="{{ e.fecha.isoformat() }}" required>
+          <label>Reemplazar comprobante (opcional)</label>
+          <input type="file" name="comprobante" accept="image/*,application/pdf">
+          <button type="submit" class="pequeno">Guardar cambios</button>
+          <a class="btn secundario pequeno" href="/egresos">Cancelar edición</a>
+        </form>
+      </td>
+    </tr>
+    {% endif %}
+    {% else %}
+    <tr><td colspan="5">Todavía no hay egresos registrados.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<p class="ayuda">El saldo acumulado del conjunto se calcula en vivo: lo que había al abrir la cuenta, más todo lo que ha entrado, menos todo lo que ha salido. Al cancelar un egreso, el dinero disponible sube solo.</p>
+
+<script>
+function alternarFormulario() {
+  var f = document.getElementById('form-egreso');
+  f.style.display = (f.style.display === 'none') ? 'block' : 'none';
+}
+</script>
+{% endblock %}

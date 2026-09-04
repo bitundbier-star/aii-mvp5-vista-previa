@@ -1,0 +1,59 @@
+{# Bloque del saldo inicial de una propiedad.
+
+   Tres opciones en palabras en vez de un campo con signo. Antes se capturaba
+   "-500" para decir "tiene 500 a favor", y equivocarse de dirección era fácil
+   y caro. Aquí el administrador elige lo que pasa y el signo lo pone el
+   sistema por dentro.
+
+   Espera en el contexto: `p` (la propiedad) y `est` (estado_saldo(p.saldo_inicial)).
+#}
+<div class="saldo-bloque">
+  <div class="saldo-cab">Saldo inicial de la propiedad <span class="obligatorio">*</span> <span class="ayuda-inline">(al día de hoy)</span></div>
+
+  <div class="saldo-opciones">
+    <label class="saldo-opcion {{ 'activa' if est.clave == 'cero' }}">
+      <input type="radio" name="tipo_saldo" value="cero" {{ 'checked' if est.clave == 'cero' }}>
+      <span>
+        <strong>No debe nada</strong><br>
+        <span class="ayuda-inline">(el monto es $0.00)</span>
+      </span>
+    </label>
+
+    <label class="saldo-opcion {{ 'activa' if est.clave == 'debe' }}">
+      <input type="radio" name="tipo_saldo" value="debe" {{ 'checked' if est.clave == 'debe' }}>
+      <span>
+        <strong>Debe esta cantidad</strong> al día de hoy
+        <span class="monto-wrap">
+          <span class="pre">$</span>
+          <input type="number" step="0.01" min="0" name="monto_saldo_debe"
+                 value="{{ '%.2f'|format(p.saldo_inicial) if est.clave == 'debe' else '' }}"
+                 placeholder="0.00" {{ '' if est.clave == 'debe' else 'disabled' }}>
+          <span class="post">mxn</span>
+        </span>
+      </span>
+    </label>
+
+    <label class="saldo-opcion {{ 'activa' if est.clave == 'favor' }}">
+      <input type="radio" name="tipo_saldo" value="favor" {{ 'checked' if est.clave == 'favor' }}>
+      <span>
+        <strong>Tiene saldo a favor.</strong> Pagó por adelantado
+        <span class="monto-wrap">
+          <span class="pre">$</span>
+          <input type="number" step="0.01" min="0" name="monto_saldo_favor"
+                 value="{{ '%.2f'|format(-p.saldo_inicial) if est.clave == 'favor' else '' }}"
+                 placeholder="0.00" {{ '' if est.clave == 'favor' else 'disabled' }}>
+          <span class="post">mxn</span>
+        </span>
+      </span>
+    </label>
+  </div>
+
+  {# El campo que de verdad se manda. Lo llena el script de base.html con el
+     monto de la opción elegida, para que el servidor reciba un solo número. #}
+  <input type="hidden" name="monto_saldo" value="{{ '%.2f'|format(p.saldo_inicial|abs) }}">
+
+  <div class="saldo-resumen">
+    Hoy: <strong class="{{ est.clase }}">{{ est.monto }}</strong>
+    <span class="etiqueta-saldo {{ est.clase }}">{{ est.palabra }}</span>
+  </div>
+</div>

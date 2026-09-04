@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block titulo %}Reporte mensual{% endblock %}
+{% block contenido %}
+
+<div class="encabezado-reporte">
+  <img src="/static/img/logo-con-nombre.png" alt="AII" class="logo-reporte">
+  <div>
+    <h1 style="margin:0">Reporte mensual{% if reporte %} — {{ reporte.periodo }}{% endif %}</h1>
+    <p class="ayuda" style="margin:4px 0 0;">{{ conjunto.nombre }} · Administra {{ conjunto.admin_nombre }}</p>
+  </div>
+</div>
+
+{% if sin_meses %}
+<div class="card">
+  <h2 style="margin-top:0">Todavía no hay ningún mes que reportar</h2>
+  <p>
+    El reporte es siempre de un mes <strong>ya cerrado</strong>. La cuenta de
+    {{ conjunto.nombre }} se abrió este mes, así que el primer reporte —el de
+    {{ proximo_mes.strftime('%m/%Y') }}— estará disponible a partir del día 1 del mes que entra.
+  </p>
+  <p class="ayuda">
+    Un mes en curso no se reporta: todavía le pueden entrar pagos y egresos, y publicar
+    cifras que van a cambiar es peor que no publicarlas. Mientras tanto, el estado de hoy
+    está en <a class="enlace" href="/dashboard">Inicio</a> y en <a class="enlace" href="/cartera">Cartera</a>.
+  </p>
+</div>
+{% else %}
+
+{% if reporte.meses_disponibles|length > 1 %}
+<div class="card selector-mes">
+  <form method="get" action="/reporte">
+    <label>Mes del reporte</label>
+    <select name="periodo" onchange="var v=this.value.split('-'); window.location='/reporte?anio='+v[0]+'&mes='+v[1];">
+      {% for m in reporte.meses_disponibles %}
+      <option value="{{ m.anio }}-{{ m.mes }}" {{ 'selected' if m.anio == reporte.anio and m.mes == reporte.mes }}>
+        {{ m.titulo }}{{ ' — el más reciente' if m.es_el_nuevo }}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+  <p class="ayuda" style="margin-bottom:0;">Los meses anteriores no caducan: se pueden consultar y descargar cuando quieras.</p>
+</div>
+{% endif %}
+
+<div class="card acciones-reporte">
+  <a class="btn" href="/reporte/imprimir?anio={{ reporte.anio }}&mes={{ reporte.mes }}" target="_blank">Descargar en PDF</a>
+  <form method="post" action="/reporte/imagen" style="display:inline">
+    <input type="hidden" name="anio" value="{{ reporte.anio }}">
+    <input type="hidden" name="mes" value="{{ reporte.mes }}">
+    <button type="submit" class="secundario">Generar imagen para compartir</button>
+  </form>
+  <a class="btn whatsapp" target="_blank" href="https://wa.me/?text={{ whatsapp }}">Compartir por WhatsApp</a>
+  <p class="ayuda" style="margin-bottom:0;">El botón de PDF abre el reporte listo para imprimir: en el diálogo del navegador elige "Guardar como PDF". El de WhatsApp solo abre un mensaje ya escrito — <strong>nada se envía solo</strong>, tú decides a quién mandárselo.</p>
+</div>
+
+{% if imagen %}
+<div class="card" style="text-align:center;">
+  <h2 style="margin-top:0">Imagen del reporte</h2>
+  <img class="comprobante-img" src="/static/{{ imagen }}" alt="Reporte en imagen">
+  <div style="margin-top:14px;">
+    <a class="btn secundario pequeno" href="/static/{{ imagen }}" download>Descargar imagen</a>
+  </div>
+  <p class="ayuda">Descárgala y adjúntala en el chat de WhatsApp: los enlaces no pueden adjuntar la imagen por ti.</p>
+</div>
+{% endif %}
+
+{% include "_reporte_cuerpo.html" %}
+
+<div class="card">
+  <h2 style="margin-top:0">Enviar este reporte por correo</h2>
+  <p class="ayuda">El reporte del mes que cierra se envía automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}). Aquí puedes además enviarlo a quien tú decidas.</p>
+  <form method="post" action="/reporte/enviar?anio={{ reporte.anio }}&mes={{ reporte.mes }}">
+    <label>Destinatarios (separados por coma)</label>
+    <input type="text" name="destinatarios" placeholder="vecino1@correo.com, vecino2@correo.com" required>
+    <button type="submit">Enviar por correo</button>
+  </form>
+  {% if resultado %}
+  <div style="margin-top:14px;">
+    {% for destino, r in resultado %}
+    <div class="aviso {{ 'exito' if r.enviado else 'info' }}">{{ destino }}: {{ r.detalle }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}
