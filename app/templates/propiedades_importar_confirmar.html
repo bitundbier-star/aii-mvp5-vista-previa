@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block titulo %}Confirmar datos del Excel{% endblock %}
+{% block contenido %}
+<h1>Así van a quedar tus propiedades</h1>
+
+<p class="ayuda">Revisa antes de guardar. Nada se ha escrito todavía en el sistema.</p>
+
+{% if errores %}
+<div class="aviso error-aviso">
+  <strong>{{ errores|length }} renglón{{ 'es' if errores|length != 1 else '' }} con problemas — no se van a aplicar hasta que los corrijas y vuelvas a subir el archivo:</strong>
+  <ul style="margin:8px 0 0; padding-left:20px;">
+    {% for e in errores %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if filas %}
+<div class="card">
+  <table>
+    <tr><th>Número</th><th>Tipo</th><th>Propietario</th><th>Residente</th><th>Saldo</th></tr>
+    {% for f in filas %}
+    <tr>
+      <td>{{ f.numero }}</td>
+      <td>{{ f.tipo_legible }}</td>
+      <td>{{ f.nombre_dueno }}</td>
+      <td>{{ f.nombre_residente or '—' }}</td>
+      <td>
+        {% if f.tipo_saldo == 'debe' %}Debe ${{ '%.2f'|format(f.monto_saldo) }}
+        {% elif f.tipo_saldo == 'favor' %}A favor ${{ '%.2f'|format(f.monto_saldo) }}
+        {% else %}Al corriente{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="aviso">
+  Esto va a <strong>reemplazar</strong> los datos actuales de estas {{ filas|length }} propiedades (no toca las que no vinieron en el archivo, ni borra propiedades).
+</div>
+
+<form method="post" action="/propiedades/importar/confirmar">
+  <input type="hidden" name="datos" value='{{ datos_json }}'>
+  <button type="submit">Confirmar y guardar {{ filas|length }} propiedad{{ 'es' if filas|length != 1 else '' }}</button>
+  <a class="btn secundario" href="/propiedades">Cancelar</a>
+</form>
+{% else %}
+<a class="btn secundario" href="/propiedades">Volver</a>
+{% endif %}
+{% endblock %}

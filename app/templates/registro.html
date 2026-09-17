@@ -35,6 +35,19 @@
       <input type="number" step="0.01" min="0" name="monto_mensual" required placeholder="0.00">
     </div>
 
+    <label class="check">
+      <input type="checkbox" name="aplica_recargo_tardio" value="1" id="check-recargo" onchange="alternarRecargo()">
+      ¿El monto aumenta si se paga después de la fecha límite?
+    </label>
+    <div id="bloque-recargo" style="display:none;">
+      <label>Monto mensual si se paga después de la fecha límite</label>
+      <div class="campo-moneda">
+        <span>$</span>
+        <input type="number" step="0.01" min="0" name="monto_mensual_tardio" placeholder="0.00">
+      </div>
+      <div class="ayuda">Este es el monto final del mes, no un extra que se suma: si el pago llega antes de la fecha límite se cobra el monto normal de arriba; si llega después, se cobra este. Lo puedes cambiar más adelante desde Configuración.</div>
+    </div>
+
     <label>¿Cada cuánto te preguntamos si el monto sigue vigente?</label>
     <select name="monto_revision_meses">
       {% for meses, etiqueta in opciones_revision %}
@@ -57,6 +70,10 @@
     </div>
     <div class="ayuda">El dinero que el conjunto ya tiene guardado hoy. A partir de aquí la cuenta corre sola: cada mes se le suma lo que entra y se le resta lo que sale.</div>
 
+    <div class="aviso info">
+      <strong>Importante sobre el saldo de cada propiedad</strong>, que vas a capturar en el siguiente paso: anota lo que cada propiedad debía <strong>al cierre del mes pasado</strong>, sin incluir el mes en curso. La cuota del mes en curso la agrega el sistema solo, en la fecha que corresponda — así el saldo no depende de qué día del mes estés dando de alta la cuenta.
+    </div>
+
     <label>¿Cuántas propiedades deben pagar mantenimiento?</label>
     <input type="number" name="num_propiedades" required min="1">
     <div class="ayuda">Se crean numeradas del 1 en adelante. Enseguida podrás cambiarle el número a cada una por el que de verdad usan (101, A1, B-3) y capturar los datos de su dueño.</div>
@@ -66,4 +83,11 @@
   </form>
 </div>
 <p style="text-align:center; font-size:14px;">¿Ya tienes cuenta? <a class="enlace" href="/login">Iniciar sesión</a></p>
+
+<script>
+function alternarRecargo() {
+  document.getElementById('bloque-recargo').style.display =
+    document.getElementById('check-recargo').checked ? 'block' : 'none';
+}
+</script>
 {% endblock %}

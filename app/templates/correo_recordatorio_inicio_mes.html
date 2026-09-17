@@ -1,0 +1,22 @@
+<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; color:#1a1a1a;">
+  <h2 style="color:#1d4ed8; margin-bottom:4px;">Recordatorio de mantenimiento — {{ conjunto.nombre }}</h2>
+  <p style="color:#666; font-size:13px; margin-top:0;">{{ propiedad.etiqueta }}{% if propiedad.nombre_dueno %} — {{ propiedad.nombre_dueno }}{% endif %}</p>
+
+  <table style="width:100%; border-collapse:collapse; margin:18px 0;">
+    <tr>
+      <td style="border:2px solid #1d4ed8; border-radius:8px; padding:14px; text-align:center;">
+        <div style="font-size:12px; color:#666;">Cuota de mantenimiento de {{ mes_nombre }}</div>
+        <div style="font-size:26px; font-weight:700; color:#1d4ed8;">${{ '%.2f'|format(monto_mes) }}</div>
+        <div style="font-size:12px; color:#666; margin-top:4px;">Fecha límite de pago: día {{ conjunto.fecha_limite_pago }}</div>
+      </td>
+    </tr>
+  </table>
+
+  {% if conjunto.aplica_recargo_tardio and conjunto.monto_mensual_tardio %}
+  <p style="font-size:13px; color:#92400e; background:#fff7ed; border:1px solid #fdba74; border-radius:8px; padding:10px 12px;">
+    Si el pago llega después del día {{ conjunto.fecha_limite_pago }}, el monto de este mes sube a <strong>${{ '%.2f'|format(conjunto.monto_mensual_tardio) }}</strong>.
+  </p>
+  {% endif %}
+
+  <p style="font-size:13px; color:#666;">Este es un recordatorio automático. Si ya pagaste, puedes ignorarlo.</p>
+</div>

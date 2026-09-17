@@ -15,12 +15,50 @@
 <div class="aviso exito">Propiedad guardada.</div>
 {% endif %}
 
+{% if importadas %}
+<div class="aviso exito">{{ importadas }} propiedad{{ 'es' if importadas != '1' else '' }} actualizada{{ 's' if importadas != '1' else '' }} desde el Excel.</div>
+{% endif %}
+
 {% set incompletas = propiedades | rejectattr('ficha_completa') | list %}
 {% if incompletas %}
 <div class="aviso">Faltan datos de {{ incompletas|length }} propiedad{{ 'es' if incompletas|length != 1 else '' }}: {% for p in incompletas %}{{ p.etiqueta }}{% if not loop.last %}, {% endif %}{% endfor %}.</div>
 {% endif %}
 
 <p class="ayuda">Solo los campos marcados con <span class="obligatorio">*</span> son obligatorios. Para agregar una propiedad nueva más adelante (si el conjunto crece), ve a <a class="enlace" href="/configuracion">Configuración</a>.</p>
+
+<div class="card">
+  <h2 style="margin-top:0">¿Prefieres llenarlo en Excel?</h2>
+  <p class="ayuda">Descarga el archivo con tus {{ propiedades|length }} propiedades ya numeradas, llénalo y súbelo de regreso — evita tener que capturar una por una aquí abajo.</p>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <a class="btn secundario pequeno" href="/propiedades/plantilla.xlsx">Descargar plantilla Excel</a>
+    <form method="post" action="/propiedades/importar" enctype="multipart/form-data" style="display:flex; gap:8px; align-items:center; margin:0;">
+      <input type="file" name="archivo" accept=".xlsx" required style="width:auto;">
+      <button type="submit" class="pequeno">Subir archivo lleno</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">¿Todas las propiedades son del mismo tipo?</h2>
+  <div style="display:flex; gap:16px; margin-bottom:10px;">
+    <label class="check"><input type="radio" name="mismo_tipo" value="si" onchange="alternarMismoTipo(true)"> Sí, todas son iguales</label>
+    <label class="check"><input type="radio" name="mismo_tipo" value="no" checked onchange="alternarMismoTipo(false)"> No, son distintas</label>
+  </div>
+  <div id="bloque-mismo-tipo" style="display:none;">
+    <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+      <div style="flex:1; min-width:200px;">
+        <label>Tipo de propiedad para todas</label>
+        <select id="tipo-para-todas">
+          {% for clave, etiqueta in tipos %}
+          <option value="{{ clave }}">{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="button" class="pequeno" onclick="aplicarTipoATodas()">Aplicar a las {{ propiedades|length }} propiedades</button>
+    </div>
+    <div class="ayuda">Esto solo llena el campo en pantalla — sigue habiendo que apretar «Guardar» en cada tarjeta (o puedes cambiar las excepciones antes de guardar).</div>
+  </div>
+</div>
 
 {% for p in propiedades %}
 {% set est = estado_saldo(p.saldo_inicial) %}
@@ -30,7 +68,7 @@
     <div class="fila-campos">
       <div>
         <label>Tipo de propiedad <span class="obligatorio">*</span></label>
-        <select name="tipo" required>
+        <select name="tipo" class="campo-tipo-propiedad" required>
           {% for clave, etiqueta in tipos %}
           <option value="{{ clave }}" {{ 'selected' if p.tipo == clave else '' }}>{{ etiqueta }}</option>
           {% endfor %}
@@ -82,4 +120,16 @@
   </form>
 </div>
 {% endfor %}
+
+<script>
+function alternarMismoTipo(activo) {
+  document.getElementById('bloque-mismo-tipo').style.display = activo ? 'block' : 'none';
+}
+function aplicarTipoATodas() {
+  var tipo = document.getElementById('tipo-para-todas').value;
+  document.querySelectorAll('.campo-tipo-propiedad').forEach(function (sel) {
+    sel.value = tipo;
+  });
+}
+</script>
 {% endblock %}

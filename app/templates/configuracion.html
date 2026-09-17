@@ -38,6 +38,50 @@
 </div>
 
 <div class="card">
+  <h2 style="margin-top:0">Monto por pago posterior al día límite</h2>
+  <p class="ayuda">
+    {% if conjunto.aplica_recargo_tardio and conjunto.monto_mensual_tardio %}
+    Activado: todo mes que ya pasó su fecha límite se cobra a <strong>${{ '%.2f'|format(conjunto.monto_mensual_tardio) }}</strong> en vez del monto normal.
+    {% else %}
+    Ahora mismo está apagado: todos los meses se cobran al monto normal, sin importar cuándo se paguen.
+    {% endif %}
+    Este cambio se aplica de inmediato a toda la cartera pendiente — no lleva historial como el monto normal.
+  </p>
+  <form method="post" action="/configuracion/monto-tardio">
+    <label class="check">
+      <input type="checkbox" name="aplica_recargo_tardio" value="1" id="check-recargo-config" {{ 'checked' if conjunto.aplica_recargo_tardio }} onchange="alternarRecargoConfig()">
+      El monto aumenta si se paga después de la fecha límite
+    </label>
+    <div id="bloque-recargo-config" style="{{ '' if conjunto.aplica_recargo_tardio else 'display:none;' }}">
+      <label>Monto mensual si se paga después de la fecha límite</label>
+      <div class="campo-moneda">
+        <span>$</span>
+        <input type="number" step="0.01" min="0" name="monto_mensual_tardio" value="{{ '%.2f'|format(conjunto.monto_mensual_tardio) if conjunto.monto_mensual_tardio else '' }}" placeholder="0.00">
+      </div>
+    </div>
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Recordatorios automáticos por correo</h2>
+  <p class="ayuda">
+    {% if conjunto.recordatorios_activos %}
+    Activados: se avisa a los correos registrados de cada propiedad al inicio de mes, y un día antes de la fecha límite a quien todavía no haya pagado.
+    {% else %}
+    Apagados: nadie recibe recordatorios automáticos; tú decides cuándo avisarles.
+    {% endif %}
+  </p>
+  <form method="post" action="/configuracion/recordatorios">
+    <label class="check">
+      <input type="checkbox" name="recordatorios_activos" value="1" {{ 'checked' if conjunto.recordatorios_activos }}>
+      Enviar recordatorios automáticos
+    </label>
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
   <h2 style="margin-top:0">Fecha límite de pago mensual</h2>
   <p class="ayuda">
     El mantenimiento de cada mes vence el día <strong>{{ conjunto.fecha_limite_pago }}</strong>.
@@ -336,4 +380,11 @@
   <p class="ayuda">Actualiza quién es el administrador en turno. Se genera automáticamente una foto del estado del conjunto en ese momento.</p>
   <a class="btn secundario" href="/administrador">Ir a traspaso de administración</a>
 </div>
+
+<script>
+function alternarRecargoConfig() {
+  document.getElementById('bloque-recargo-config').style.display =
+    document.getElementById('check-recargo-config').checked ? 'block' : 'none';
+}
+</script>
 {% endblock %}

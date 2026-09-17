@@ -3,6 +3,11 @@
 {% block contenido %}
 <h1>Comprobante generado</h1>
 
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+  <a class="enlace" href="/pagos">← Volver a pagos</a>
+  <a class="btn pequeno" href="/pagos/nuevo">+ Registrar pago</a>
+</div>
+
 <div class="aviso {{ 'exito' if smtp_real else 'info' }}">
   {% if smtp_real %}
   El comprobante se envió al correo de la cuenta ({{ conjunto.cuenta_email }}){% if enviado_al_vecino %} y también al vecino{% endif %}.

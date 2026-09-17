@@ -33,15 +33,33 @@ def _restar_mes(fecha: dt.date) -> dt.date:
     return fecha.replace(month=fecha.month - 1)
 
 
+def monto_exigible_del_mes(conjunto: Conjunto, mes: dt.date) -> float:
+    """El monto de mantenimiento que corresponde a `mes`.
+
+    Todo mes que llega a sumarse en `esperado_mantenimiento_a_la_fecha` ya pasó
+    su propia fecha límite de pago — así funciona esa función: un mes no
+    exigible todavía no se cuenta como deuda. Por eso, si el conjunto tiene
+    activado el monto por pago posterior al día límite, ese monto reemplaza al
+    normal para *cualquier* mes que llegue hasta aquí — no hace falta volver a
+    preguntar si "ya venció", porque llegar aquí ya lo confirma.
+    """
+    if conjunto.aplica_recargo_tardio and conjunto.monto_mensual_tardio:
+        return conjunto.monto_mensual_tardio
+    return conjunto.monto_vigente_en(mes)
+
+
 def esperado_mantenimiento_a_la_fecha(conjunto: Conjunto, hasta: dt.date) -> float:
     """Suma, mes a mes desde que arrancó la cuenta hasta `hasta`, el monto de
-    mantenimiento que estaba vigente en cada mes. Respeta los cambios
-    históricos de monto (un cambio solo aplica hacia adelante). Aproximación
-    por mes calendario completo (no prorratea por día).
+    mantenimiento que corresponde a cada mes. Respeta los cambios históricos
+    de monto (un cambio solo aplica hacia adelante). Aproximación por mes
+    calendario completo (no prorratea por día).
 
     El mes de `hasta` se incluye **solo si ya pasó la fecha límite de pago**.
     Antes de esa fecha el mes en curso todavía no se debe, y contarlo pondría a
-    todo el conjunto en morosidad cada día primero.
+    todo el conjunto en morosidad cada día primero. Justo por eso, si el
+    conjunto cobra un monto distinto por pago posterior al día límite, ese
+    monto es el que aplica a todo mes que sí llegue a contarse aquí (ver
+    `monto_exigible_del_mes`).
     """
     inicio = conjunto.fecha_inicio_cobros.replace(day=1)
     limite = hasta.replace(day=1)
@@ -53,7 +71,7 @@ def esperado_mantenimiento_a_la_fecha(conjunto: Conjunto, hasta: dt.date) -> flo
     total = 0.0
     cursor = inicio
     while cursor <= limite:
-        total += conjunto.monto_vigente_en(cursor)
+        total += monto_exigible_del_mes(conjunto, cursor)
         cursor = _sumar_mes(cursor)
     return total
 

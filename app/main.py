@@ -32,7 +32,11 @@ from .services.cartera import estado_conjunto, estado_propiedad, orden_natural
 from .services.comprobante import comprobante_para_adjuntar, comprobante_png
 from .services.email import enviar_correo, modo_real_configurado
 from .services.exportar import exportar_conjunto
-from .services.formato import dinero, estado_saldo
+from .services.plantilla_propiedades import (
+    generar_plantilla as generar_plantilla_propiedades,
+    leer_plantilla as leer_plantilla_propiedades,
+)
+from .services.formato import dinero, estado_saldo, mes_titulo
 from .services.reportes import (
     datos_reporte,
     hay_reporte_disponible,
@@ -183,12 +187,23 @@ def registro_submit(
     password: str = Form(...),
     cuenta_email: str = Form(...),
     monto_mensual: float = Form(...),
+    aplica_recargo_tardio: str = Form(""),
+    monto_mensual_tardio: str = Form(""),
     monto_revision_meses: int = Form(12),
     fecha_limite_pago: int = Form(11),
     saldo_inicial: float = Form(0.0),
     num_propiedades: int = Form(...),
     db: Session = Depends(get_db),
 ):
+    recargo_activo = aplica_recargo_tardio == "1"
+    monto_tardio = None
+    if recargo_activo and monto_mensual_tardio.strip():
+        try:
+            monto_tardio = round(float(monto_mensual_tardio), 2)
+        except ValueError:
+            monto_tardio = None
+    if not monto_tardio:
+        recargo_activo = False
     existente = db.query(models.Conjunto).filter_by(login_email=login_email).first()
     if existente:
         return tpl(
@@ -206,6 +221,8 @@ def registro_submit(
         password_hash=bcrypt.hash(password),
         cuenta_email=cuenta_email,
         monto_mensual=monto_mensual,
+        aplica_recargo_tardio=recargo_activo,
+        monto_mensual_tardio=monto_tardio,
         monto_revision_meses=monto_revision_meses,
         fecha_limite_pago=min(max(int(fecha_limite_pago or 11), 1), 31),
         saldo_inicial=round(max(saldo_inicial or 0.0, 0.0), 2),
@@ -433,10 +450,17 @@ def propiedades_lista(request: Request, conjunto=Depends(requerir_login), db: Se
         # En el alta el número todavía se puede escribir; después se congela.
         # `en_alta` es lo que decide si el campo va abierto o de solo lectura.
         en_alta=True,
-        propiedades=sorted(conjunto.propiedades, key=orden_natural),
+        # Ordenadas por id (orden de creación), NO por número: si se ordenara
+        # por número, cambiar el 5 por el 201 movería esa tarjeta hasta el
+        # final de la lista a media captura, y el administrador perdería el
+        # hilo de en cuál se había quedado. El orden se estabiliza por
+        # número recién cuando se editan desde Configuración, donde el
+        # número ya no cambia.
+        propiedades=sorted(conjunto.propiedades, key=lambda p: p.id),
         tipos=TIPOS_PROPIEDAD,
         error=request.query_params.get("error"),
         guardada=request.query_params.get("guardada"),
+        importadas=request.query_params.get("importadas"),
     )
 
 
@@ -546,6 +570,91 @@ def propiedad_actualizar(
     )
 
 
+@app.get("/propiedades/plantilla.xlsx")
+def propiedades_plantilla(conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    contenido = generar_plantilla_propiedades(conjunto)
+    nombre = f"propiedades_{conjunto.nombre}.xlsx".replace(" ", "_")
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
+@app.post("/propiedades/importar", response_class=HTMLResponse)
+async def propiedades_importar(
+    request: Request,
+    archivo: UploadFile = File(...),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Lee el Excel subido y muestra una pantalla de confirmación — todavía
+    no escribe nada en la base de datos. Ver propiedades_importar_confirmar
+    para el paso que sí guarda."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+
+    contenido = await archivo.read()
+    filas, errores = leer_plantilla_propiedades(contenido, conjunto)
+
+    if not filas:
+        return RedirectResponse(
+            f"/propiedades?error={urllib.parse.quote(errores[0] if errores else 'El archivo no tiene renglones que se puedan leer.')}",
+            status_code=302,
+        )
+
+    import json as _json
+
+    return tpl(
+        request,
+        "propiedades_importar_confirmar.html",
+        conjunto=conjunto,
+        filas=filas,
+        errores=errores,
+        datos_json=_json.dumps(filas),
+    )
+
+
+@app.post("/propiedades/importar/confirmar")
+def propiedades_importar_confirmar(
+    datos: str = Form(...),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+
+    import json as _json
+
+    try:
+        filas = _json.loads(datos)
+    except ValueError:
+        return RedirectResponse("/propiedades?error=No%20se%20pudo%20leer%20la%20confirmaci%C3%B3n.", status_code=302)
+
+    aplicadas = 0
+    for f in filas:
+        propiedad = db.query(models.Propiedad).filter_by(
+            id=f["propiedad_id"], conjunto_id=conjunto.id
+        ).first()
+        if not propiedad:
+            continue
+        propiedad.tipo = f["tipo"] if f["tipo"] in TIPOS_PROPIEDAD_DICT else "otro"
+        propiedad.nombre_dueno = f["nombre_dueno"].strip()
+        propiedad.celular_dueno = f["celular_dueno"].strip() or None
+        propiedad.email_dueno = f["email_dueno"].strip() or None
+        propiedad.nombre_residente = f["nombre_residente"].strip() or None
+        propiedad.celular_residente = f["celular_residente"].strip() or None
+        propiedad.email_residente = f["email_residente"].strip() or None
+        propiedad.notas = f["notas"].strip() or "N/A"
+        propiedad.saldo_inicial = _saldo_desde_opciones(f["tipo_saldo"], f["monto_saldo"])
+        aplicadas += 1
+
+    db.commit()
+    return RedirectResponse(f"/propiedades?importadas={aplicadas}", status_code=302)
+
+
 # ---------------------------------------------------------------------------
 # Pagos (ingresos) + comprobante
 # ---------------------------------------------------------------------------
@@ -629,6 +738,23 @@ def pago_nuevo_form(request: Request, conjunto=Depends(requerir_login), db: Sess
     )
 
 
+@app.get("/pagos/monto-sugerido/{propiedad_id}")
+def pago_monto_sugerido(
+    propiedad_id: int, conjunto=Depends(requerir_login), db: Session = Depends(get_db)
+):
+    """Lo que esa propiedad debe hoy (mantenimiento + proyectos, ya con el
+    monto por pago posterior al día límite si aplica). Alimenta el botón
+    "Usar lo que debe hoy" del formulario de pago — no es la cuota fija, es
+    el adeudo real de hoy, que es lo que de verdad se necesita para saldar."""
+    if not conjunto:
+        return {"monto": 0.0}
+    propiedad = db.query(models.Propiedad).filter_by(id=propiedad_id, conjunto_id=conjunto.id).first()
+    if not propiedad:
+        return {"monto": 0.0}
+    estado = estado_propiedad(propiedad)
+    return {"monto": max(round(estado["saldo"], 2), 0.0)}
+
+
 @app.post("/pagos/nuevo")
 def pago_nuevo_submit(
     request: Request,
@@ -662,16 +788,31 @@ def pago_nuevo_submit(
         )
 
     folio = conjunto.siguiente_folio()
+    fecha_pago = dt.datetime.strptime(fecha_recepcion, "%Y-%m-%d").date()
+
+    # Si el mantenimiento de este conjunto ya está en zona de pago tardío hoy
+    # (el mes en curso ya pasó su fecha límite), el comprobante lo explica.
+    # Es un snapshot para mostrarlo — la cartera siempre se calcula en vivo,
+    # esto no la afecta.
+    incluye_recargo = bool(
+        concepto == "mantenimiento"
+        and conjunto.aplica_recargo_tardio
+        and conjunto.monto_mensual_tardio
+        and conjunto.cargo_del_mes_es_exigible(fecha_pago.year, fecha_pago.month, fecha_pago)
+    )
+    monto_base = conjunto.monto_vigente_en(fecha_pago) if incluye_recargo else None
 
     pago = models.Pago(
         conjunto_id=conjunto.id,
         propiedad_id=propiedad.id,
         proyecto_id=proyecto_ref.id if proyecto_ref else None,
         folio=folio,
-        fecha_recepcion=dt.datetime.strptime(fecha_recepcion, "%Y-%m-%d").date(),
+        fecha_recepcion=fecha_pago,
         monto=monto,
         concepto=concepto,
         metodo_pago=metodo_pago,
+        incluye_recargo_tardio=incluye_recargo,
+        monto_base_snapshot=monto_base,
     )
     db.add(pago)
     db.commit()
@@ -873,12 +1014,22 @@ def egresos_lista(request: Request, conjunto=Depends(requerir_login), db: Sessio
     egresos = sorted(conjunto.egresos, key=lambda e: (e.fecha, e.id), reverse=True)
     hoy = dt.date.today()
     inicio_mes = hoy.replace(day=1)
+
+    # Para el registro rápido de gastos fijos: el último monto usado por cada
+    # concepto, para sugerirlo cuando el administrador vuelve a escribir el
+    # mismo concepto (jardinería, luz de áreas comunes, etc.).
+    ultimo_monto_por_concepto = {}
+    for e in sorted(conjunto.egresos, key=lambda e: (e.fecha, e.id)):
+        ultimo_monto_por_concepto[e.concepto] = e.monto
+
     return tpl(
         request,
         "egresos.html",
         conjunto=conjunto,
         egresos=egresos,
         hoy=hoy.isoformat(),
+        conceptos_previos=sorted(ultimo_monto_por_concepto.keys()),
+        montos_por_concepto=ultimo_monto_por_concepto,
         # El número grande de esta pantalla es lo que ha salido este mes, que
         # es lo que se está viendo aquí. El saldo acumulado del conjunto vive
         # en Inicio y en el reporte.
@@ -1230,6 +1381,73 @@ def enviar_reporte_automatico_mensual():
         db.close()
 
 
+def _correos_de(propiedad) -> list[str]:
+    return [c for c in (propiedad.email_dueno, propiedad.email_residente) if c]
+
+
+def enviar_recordatorios_inicio_mes():
+    """Tarea programada: el día 1 de cada mes, avisa a los correos
+    registrados de cada propiedad activa cuánto le toca pagar este mes y para
+    cuándo. Nunca se manda a un conjunto que apagó los recordatorios, ni a una
+    propiedad sin ningún correo capturado."""
+    from .database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        hoy = dt.date.today()
+        mes_nombre = mes_titulo(hoy.year, hoy.month)
+        for conjunto in db.query(models.Conjunto).filter_by(recordatorios_activos=True).all():
+            monto_mes = conjunto.monto_vigente_en(hoy.replace(day=1))
+            for propiedad in conjunto.propiedades:
+                if not propiedad.activo:
+                    continue
+                correos = _correos_de(propiedad)
+                if not correos:
+                    continue
+                cuerpo = templates.get_template("correo_recordatorio_inicio_mes.html").render(
+                    conjunto=conjunto, propiedad=propiedad, monto_mes=monto_mes, mes_nombre=mes_nombre,
+                )
+                for correo in correos:
+                    enviar_correo(correo, f"Mantenimiento de {mes_nombre} - {conjunto.nombre}", cuerpo)
+    finally:
+        db.close()
+
+
+def enviar_recordatorios_limite():
+    """Tarea programada diaria: a quien todavía no haya registrado un pago
+    este mes, le avisa un día antes de que la fecha límite de SU conjunto
+    (cada conjunto elige la suya) se cumpla."""
+    from .database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        hoy = dt.date.today()
+        inicio_mes = hoy.replace(day=1)
+        for conjunto in db.query(models.Conjunto).filter_by(recordatorios_activos=True).all():
+            if conjunto.fecha_limite_pago - 1 != hoy.day:
+                continue
+            monto_normal = conjunto.monto_vigente_en(inicio_mes)
+            for propiedad in conjunto.propiedades:
+                if not propiedad.activo:
+                    continue
+                correos = _correos_de(propiedad)
+                if not correos:
+                    continue
+                ya_pago = any(
+                    p.fecha_recepcion >= inicio_mes and p.abona_a_cartera
+                    for p in propiedad.pagos
+                )
+                if ya_pago:
+                    continue
+                cuerpo = templates.get_template("correo_recordatorio_limite.html").render(
+                    conjunto=conjunto, propiedad=propiedad, monto_normal=monto_normal,
+                )
+                for correo in correos:
+                    enviar_correo(correo, f"Mañana vence el mantenimiento - {conjunto.nombre}", cuerpo)
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Configuración: monto de mantenimiento (con vigencia), recordatorio de
 # revisión, contraseña, método de pago (Stripe), propiedades y traspaso.
@@ -1301,6 +1519,46 @@ def configuracion_revision(
         return RedirectResponse("/login", status_code=302)
     conjunto.monto_revision_meses = monto_revision_meses
     conjunto.monto_confirmado_en = dt.date.today()
+    db.commit()
+    return RedirectResponse("/configuracion", status_code=302)
+
+
+@app.post("/configuracion/monto-tardio")
+def configuracion_monto_tardio(
+    request: Request,
+    aplica_recargo_tardio: str = Form(""),
+    monto_mensual_tardio: str = Form(""),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Sin historial propio (a diferencia del monto normal): el cambio se
+    aplica de inmediato a toda la cartera pendiente, igual que ya pasa hoy al
+    cambiar la fecha límite de pago."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    activo = aplica_recargo_tardio == "1"
+    monto = None
+    if activo and monto_mensual_tardio.strip():
+        try:
+            monto = round(float(monto_mensual_tardio), 2)
+        except ValueError:
+            monto = None
+    conjunto.aplica_recargo_tardio = activo and bool(monto)
+    conjunto.monto_mensual_tardio = monto
+    db.commit()
+    return RedirectResponse("/configuracion", status_code=302)
+
+
+@app.post("/configuracion/recordatorios")
+def configuracion_recordatorios(
+    request: Request,
+    recordatorios_activos: str = Form(""),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    conjunto.recordatorios_activos = recordatorios_activos == "1"
     db.commit()
     return RedirectResponse("/configuracion", status_code=302)
 
@@ -1745,6 +2003,10 @@ def administrador_actualizar(
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(enviar_reporte_automatico_mensual, "cron", day=1, hour=8, minute=0)
+scheduler.add_job(enviar_recordatorios_inicio_mes, "cron", day=1, hour=9, minute=0)
+# Corre todos los días: cada conjunto elige su propia fecha límite, así que
+# no hay un solo día del mes que sirva para todos.
+scheduler.add_job(enviar_recordatorios_limite, "cron", hour=9, minute=30)
 
 
 @app.on_event("startup")

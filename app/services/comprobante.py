@@ -74,7 +74,27 @@ def dibujar_comprobante(pago: Pago) -> Image.Image:
     y += 20
     draw.line((MARGEN, y, ANCHO - MARGEN, y), fill="#dddddd", width=2)
     y += 40
-    draw.text((MARGEN, y), "Monto recibido", font=f_label, fill="#777777")
+
+    # Si este pago incluyó el monto por pago posterior al día límite, se
+    # desglosa en dos líneas: nadie debe adivinar por qué el total es más
+    # alto de lo que esperaba.
+    muestra_desglose = (
+        pago.incluye_recargo_tardio
+        and pago.monto_base_snapshot
+        and pago.monto > pago.monto_base_snapshot + 0.005
+    )
+    if muestra_desglose:
+        recargo = round(pago.monto - pago.monto_base_snapshot, 2)
+        draw.text((MARGEN, y), "Mantenimiento", font=f_label, fill="#777777")
+        draw.text((ANCHO - MARGEN, y), f"${pago.monto_base_snapshot:,.2f}", font=f_valor, fill="#1a1a1a", anchor="ra")
+        y += 34
+        draw.text((MARGEN, y), "Monto por pago posterior al día límite", font=f_label, fill="#777777")
+        draw.text((ANCHO - MARGEN, y), f"${recargo:,.2f}", font=f_valor, fill="#1a1a1a", anchor="ra")
+        y += 40
+        draw.line((MARGEN, y, ANCHO - MARGEN, y), fill="#dddddd", width=1)
+        y += 24
+
+    draw.text((MARGEN, y), "Monto recibido" if not muestra_desglose else "Total", font=f_label, fill="#777777")
     y += 32
     draw.text((MARGEN, y), f"${pago.monto:,.2f} MXN", font=f_monto, fill="#0a7d3c")
 

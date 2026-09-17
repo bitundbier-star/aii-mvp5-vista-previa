@@ -8,7 +8,8 @@
    Espera en el contexto: `p` (la propiedad) y `est` (estado_saldo(p.saldo_inicial)).
 #}
 <div class="saldo-bloque">
-  <div class="saldo-cab">Saldo inicial de la propiedad <span class="obligatorio">*</span> <span class="ayuda-inline">(al día de hoy)</span></div>
+  <div class="saldo-cab">Saldo inicial de la propiedad <span class="obligatorio">*</span> <span class="ayuda-inline">(al cierre del mes pasado)</span></div>
+  <div class="ayuda" style="margin-top:-4px; margin-bottom:8px;">No incluyas el mes en curso: la cuota de este mes la agrega el sistema solo, en la fecha que corresponda. Si ya pagó este mes, ese pago se registra aparte, no aquí.</div>
 
   <div class="saldo-opciones">
     <label class="saldo-opcion {{ 'activa' if est.clave == 'cero' }}">

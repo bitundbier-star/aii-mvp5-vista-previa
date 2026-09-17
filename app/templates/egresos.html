@@ -14,11 +14,15 @@
   <h2 style="margin-top:0">Nuevo egreso</h2>
   <form method="post" action="/egresos/nuevo" enctype="multipart/form-data">
     <label>Concepto</label>
-    <input type="text" name="concepto" required placeholder="p. ej. pago a empresa de limpieza">
+    <input type="text" name="concepto" id="concepto-egreso" list="conceptos-previos" required placeholder="p. ej. pago a empresa de limpieza" oninput="sugerirMontoEgreso()" autocomplete="off">
+    <datalist id="conceptos-previos">
+      {% for c in conceptos_previos %}<option value="{{ c }}">{% endfor %}
+    </datalist>
+    {% if conceptos_previos %}<div class="ayuda">Empieza a escribir un gasto que ya hayas registrado antes (jardinería, limpieza, luz de áreas comunes…) y aparece en la lista con el monto de la última vez.</div>{% endif %}
     <label>Monto</label>
     <div class="campo-moneda">
       <span>$</span>
-      <input type="number" step="0.01" min="0" name="monto" required placeholder="0.00">
+      <input type="number" step="0.01" min="0" name="monto" id="monto-egreso" required placeholder="0.00">
     </div>
     <label>Fecha</label>
     <input type="date" name="fecha" value="{{ hoy }}" required>
@@ -79,6 +83,20 @@
 function alternarFormulario() {
   var f = document.getElementById('form-egreso');
   f.style.display = (f.style.display === 'none') ? 'block' : 'none';
+}
+
+var MONTOS_POR_CONCEPTO = {{ montos_por_concepto | tojson }};
+
+function sugerirMontoEgreso() {
+  var concepto = document.getElementById('concepto-egreso').value;
+  var montoAnterior = MONTOS_POR_CONCEPTO[concepto];
+  var campoMonto = document.getElementById('monto-egreso');
+  // Solo se sugiere si el concepto coincide exacto con uno anterior y el
+  // administrador todavía no escribió su propio monto — nunca se pisa lo
+  // que ya haya tecleado.
+  if (montoAnterior !== undefined && !campoMonto.value) {
+    campoMonto.value = montoAnterior.toFixed(2);
+  }
 }
 </script>
 {% endblock %}

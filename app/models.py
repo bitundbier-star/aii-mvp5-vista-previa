@@ -89,6 +89,20 @@ class Conjunto(Base):
 
     fecha_limite_pago = Column(Integer, nullable=False, default=11)
 
+    # Monto por pago posterior al día límite. Reemplaza al monto normal para
+    # todo mes que ya haya pasado su fecha límite — no se suma, se reemplaza:
+    # es "el monto final a cobrar ese mes", como lo pidió Sofía. Al no llevar
+    # historial propio (a diferencia de monto_mensual), cambiarlo aquí se
+    # aplica de inmediato a toda la cartera pendiente, igual que ya pasa hoy
+    # al cambiar fecha_limite_pago.
+    aplica_recargo_tardio = Column(Boolean, nullable=False, default=False)
+    monto_mensual_tardio = Column(Float, nullable=True)
+
+    # Recordatorios automáticos por correo (inicio de mes, y un día antes de
+    # la fecha límite a quien no ha pagado). Activado por default, como el
+    # reporte mensual automático; se puede apagar desde Configuración.
+    recordatorios_activos = Column(Boolean, nullable=False, default=True)
+
     monto_mensual = Column(Float, nullable=False, default=0.0)
     monto_revision_meses = Column(Integer, nullable=False, default=12)
     monto_confirmado_en = Column(Date, nullable=False, default=hoy)
@@ -245,6 +259,14 @@ class Pago(Base):
     concepto = Column(String(30), nullable=False, default="mantenimiento")
 
     metodo_pago = Column(String(30), nullable=False, default="efectivo")
+
+    # Snapshot al momento de registrar el pago, solo para que el comprobante
+    # explique el monto — nunca se vuelve a leer para calcular la cartera
+    # (esa siempre se recalcula en vivo). Sin esto, un comprobante ya
+    # entregado cambiaría de aspecto si el conjunto se pone al corriente
+    # después, que es justo lo que un comprobante no debe hacer.
+    incluye_recargo_tardio = Column(Boolean, nullable=False, default=False)
+    monto_base_snapshot = Column(Float, nullable=True)
 
     comprobante_path = Column(String(300), nullable=True)
     creado_en = Column(DateTime, nullable=False, default=ahora)

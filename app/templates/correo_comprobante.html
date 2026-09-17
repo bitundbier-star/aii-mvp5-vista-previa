@@ -13,7 +13,13 @@
     <tr><td style="padding:6px 0; color:#666;">Proyecto</td><td style="padding:6px 0;">{{ pago.proyecto.concepto }}</td></tr>
     {% endif %}
     <tr><td style="padding:6px 0; color:#666;">Método de pago</td><td style="padding:6px 0;">{{ pago.metodo_pago_legible }}</td></tr>
+    {% if pago.incluye_recargo_tardio and pago.monto_base_snapshot and pago.monto > pago.monto_base_snapshot + 0.005 %}
+    <tr><td style="padding:6px 0; color:#666;">Mantenimiento</td><td style="padding:6px 0;">${{ '%.2f'|format(pago.monto_base_snapshot) }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Monto por pago posterior al día límite</td><td style="padding:6px 0;">${{ '%.2f'|format(pago.monto - pago.monto_base_snapshot) }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;"><strong>Total</strong></td><td style="padding:6px 0;"><strong>${{ '%.2f'|format(pago.monto) }} MXN</strong></td></tr>
+    {% else %}
     <tr><td style="padding:6px 0; color:#666;">Monto</td><td style="padding:6px 0;"><strong>${{ '%.2f'|format(pago.monto) }} MXN</strong></td></tr>
+    {% endif %}
   </table>
   <p style="margin-top:16px; color:#666; font-size:12px;">El comprobante en imagen va adjunto a este correo.</p>
 </div>
