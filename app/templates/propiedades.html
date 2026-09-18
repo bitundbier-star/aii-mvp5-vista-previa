@@ -28,7 +28,7 @@
 
 <div class="card">
   <h2 style="margin-top:0">¿Prefieres llenarlo en Excel?</h2>
-  <p class="ayuda">Descarga el archivo con tus {{ propiedades|length }} propiedades ya numeradas, llénalo y súbelo de regreso — evita tener que capturar una por una aquí abajo.</p>
+  <p class="ayuda">Descarga el archivo con tus {{ propiedades|length }} propiedades ya numeradas, llénalo y súbelo de regreso — evita tener que capturar una por una aquí abajo. El saldo de cada propiedad debe ir <strong>al día en que subas el archivo</strong>: el sistema ya sabe si la cuota de este mes hay que sumarla aparte o no. La plataforma no valida que esos montos sean correctos.</p>
   <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
     <a class="btn secundario pequeno" href="/propiedades/plantilla.xlsx">Descargar plantilla Excel</a>
     <form method="post" action="/propiedades/importar" enctype="multipart/form-data" style="display:flex; gap:8px; align-items:center; margin:0;">

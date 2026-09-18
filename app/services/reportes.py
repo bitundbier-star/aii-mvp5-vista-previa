@@ -82,7 +82,7 @@ def saldo_acumulado(conjunto: Conjunto, hasta: dt.date | None = None) -> float:
     """El saldo acumulado del conjunto a una fecha: lo que había al abrir la
     cuenta, más todo lo que entró, menos todo lo que salió, hasta ese día."""
     hasta = hasta or dt.date.today()
-    ingresos = sum(p.monto for p in conjunto.pagos if p.fecha_recepcion <= hasta)
+    ingresos = sum(p.monto for p in conjunto.pagos if p.fecha_recepcion <= hasta and not p.cancelado)
     egresos = sum(e.monto for e in conjunto.egresos if e.fecha <= hasta)
     return round((conjunto.saldo_inicial or 0.0) + ingresos - egresos, 2)
 
@@ -122,7 +122,7 @@ def datos_reporte(
     dia_previo = primero - dt.timedelta(days=1)
 
     pagos_mes = sorted(
-        [p for p in conjunto.pagos if primero <= p.fecha_recepcion <= ultimo],
+        [p for p in conjunto.pagos if primero <= p.fecha_recepcion <= ultimo and not p.cancelado],
         key=lambda p: (p.fecha_recepcion, p.id),
     )
     egresos_mes = sorted(
@@ -167,7 +167,7 @@ def datos_reporte(
             continue
         total = round(proyecto.monto_total, 2)
         recaudado = round(
-            sum(p.monto for p in proyecto.pagos if p.fecha_recepcion <= ultimo), 2
+            sum(p.monto for p in proyecto.pagos if p.fecha_recepcion <= ultimo and not p.cancelado), 2
         )
         proyectos_en_curso.append(
             {
@@ -229,7 +229,7 @@ def resumen_actual(conjunto: Conjunto, al_dia: dt.date | None = None) -> dict:
     return {
         "saldo_acumulado": saldo_acumulado(conjunto, al_dia),
         "ingresos_mes": round(
-            sum(p.monto for p in conjunto.pagos if p.fecha_recepcion >= inicio_mes), 2
+            sum(p.monto for p in conjunto.pagos if p.fecha_recepcion >= inicio_mes and not p.cancelado), 2
         ),
         "egresos_mes": round(
             sum(e.monto for e in conjunto.egresos if e.fecha >= inicio_mes), 2

@@ -204,6 +204,19 @@ def registro_submit(
             monto_tardio = None
     if not monto_tardio:
         recargo_activo = False
+
+    # A partir de cuándo el sistema empieza a cobrar la cuota mensual sola.
+    # El saldo inicial que se va a capturar por propiedad (aquí o en el
+    # Excel, justo después de esta pantalla) se asume correcto al día en que
+    # se captura, sin importar qué día del mes sea. Por eso, si hoy ya pasó
+    # la fecha límite de pago de este conjunto, el mes en curso se da por
+    # cobrado dentro de ese saldo y el cobro automático empieza hasta el
+    # siguiente; si todavía no llega la fecha límite, este mes ni siquiera es
+    # exigible todavía, así que el cobro automático sí lo incluye.
+    hoy = dt.date.today()
+    limite_pago = min(max(int(fecha_limite_pago or 11), 1), 31)
+    inicio_cobros = restar_meses(hoy, -1) if hoy.day > limite_pago else hoy
+
     existente = db.query(models.Conjunto).filter_by(login_email=login_email).first()
     if existente:
         return tpl(
@@ -224,9 +237,9 @@ def registro_submit(
         aplica_recargo_tardio=recargo_activo,
         monto_mensual_tardio=monto_tardio,
         monto_revision_meses=monto_revision_meses,
-        fecha_limite_pago=min(max(int(fecha_limite_pago or 11), 1), 31),
+        fecha_limite_pago=limite_pago,
         saldo_inicial=round(max(saldo_inicial or 0.0, 0.0), 2),
-        fecha_inicio_cobros=dt.date.today(),
+        fecha_inicio_cobros=inicio_cobros,
         monto_confirmado_en=dt.date.today(),
     )
     db.add(conjunto)
@@ -640,6 +653,9 @@ def propiedades_importar_confirmar(
         ).first()
         if not propiedad:
             continue
+        nuevo_numero = (f.get("numero") or "").strip()
+        if nuevo_numero:
+            propiedad.numero = nuevo_numero
         propiedad.tipo = f["tipo"] if f["tipo"] in TIPOS_PROPIEDAD_DICT else "otro"
         propiedad.nombre_dueno = f["nombre_dueno"].strip()
         propiedad.celular_dueno = f["celular_dueno"].strip() or None
@@ -718,6 +734,8 @@ def pagos_lista(
         ver_todo=ver_todo,
         meses_vista=MESES_VISTA_PAGOS,
         total_pagos=len(conjunto.pagos),
+        error=request.query_params.get("error"),
+        cancelado=request.query_params.get("cancelado"),
     )
 
 
@@ -883,7 +901,46 @@ def ver_comprobante(folio: str, request: Request, conjunto=Depends(requerir_logi
         pago=pago,
         smtp_real=modo_real_configurado(),
         enviado_al_vecino=request.query_params.get("vecino") == "1",
+        error=request.query_params.get("error"),
+        cancelado=request.query_params.get("cancelado"),
     )
+
+
+@app.post("/pagos/{pago_id}/cancelar")
+def pago_cancelar(
+    pago_id: int,
+    volver: str = Form("pagos"),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Deshace el daño de un pago mal registrado, sin borrar el rastro: el
+    pago se marca como cancelado (nunca se elimina) y deja de contar para la
+    cartera, como si nunca hubiera entrado ese dinero. Solo se puede hacer
+    dentro de las primeras 48 horas de haberlo registrado — pasado ese
+    tiempo, ya no se puede deshacer desde aquí.
+    """
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+
+    pago = db.query(models.Pago).filter_by(id=pago_id, conjunto_id=conjunto.id).first()
+    if not pago:
+        return RedirectResponse("/pagos", status_code=302)
+
+    destino = f"/comprobantes/{pago.folio}" if volver == "comprobante" else "/pagos"
+
+    if not pago.puede_cancelarse:
+        mensaje = (
+            "Este pago ya está cancelado."
+            if pago.cancelado
+            else "Ya pasaron más de 48 horas desde que se registró este pago, así que ya no se puede cancelar desde aquí."
+        )
+        return RedirectResponse(f"{destino}?error={urllib.parse.quote(mensaje)}", status_code=302)
+
+    pago.cancelado = True
+    pago.cancelado_en = dt.datetime.utcnow()
+    db.commit()
+
+    return RedirectResponse(f"{destino}?cancelado=1", status_code=302)
 
 
 # ---------------------------------------------------------------------------
@@ -1434,7 +1491,7 @@ def enviar_recordatorios_limite():
                 if not correos:
                     continue
                 ya_pago = any(
-                    p.fecha_recepcion >= inicio_mes and p.abona_a_cartera
+                    p.fecha_recepcion >= inicio_mes and p.abona_a_cartera and not p.cancelado
                     for p in propiedad.pagos
                 )
                 if ya_pago:

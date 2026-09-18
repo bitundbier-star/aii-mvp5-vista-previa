@@ -4,6 +4,13 @@
 <h1>Pagos registrados</h1>
 <a class="btn" href="/pagos/nuevo">+ Registrar pago</a>
 
+{% if cancelado %}
+<div class="aviso exito" style="margin-top:12px;">El pago se canceló. Ya no cuenta para la cartera; queda visible aquí marcado como «Cancelado».</div>
+{% endif %}
+{% if error %}
+<div class="aviso error-aviso" style="margin-top:12px;">{{ error }}</div>
+{% endif %}
+
 <div class="card" style="margin-top:16px;">
   <h2 style="margin-top:0">Filtros</h2>
   <p class="ayuda">Se pueden usar todos juntos: por ejemplo, los pagos de mantenimiento de la casa 12 en julio.</p>
@@ -58,8 +65,11 @@
   <table>
     <tr><th>Folio</th><th>Propiedad</th><th>Fecha</th><th>Concepto</th><th>Método</th><th>Monto</th><th></th></tr>
     {% for p in pagos %}
-    <tr>
-      <td>{{ p.folio }}</td>
+    <tr class="{{ 'fila-cancelada' if p.cancelado else '' }}">
+      <td>
+        {{ p.folio }}
+        {% if p.cancelado %}<span class="etiqueta-saldo saldo-debe">Cancelado</span>{% endif %}
+      </td>
       <td>{{ p.propiedad.etiqueta }}</td>
       <td>{{ p.fecha_recepcion.strftime('%d/%m/%Y') }}</td>
       <td>
@@ -68,7 +78,16 @@
       </td>
       <td class="ayuda">{{ p.metodo_pago_legible }}</td>
       <td>${{ '%.2f'|format(p.monto) }}</td>
-      <td><a class="enlace" href="/comprobantes/{{ p.folio }}">ver</a></td>
+      <td style="white-space:nowrap;">
+        <a class="enlace" href="/comprobantes/{{ p.folio }}">ver</a>
+        {% if p.puede_cancelarse %}
+        <form method="post" action="/pagos/{{ p.id }}/cancelar" style="display:inline;"
+              onsubmit="return confirm('¿Cancelar el pago {{ p.folio }} por ${{ '%.2f'|format(p.monto) }}? La propiedad vuelve a deber ese monto. El pago no se borra: queda marcado como cancelado.')">
+          <input type="hidden" name="volver" value="pagos">
+          <button type="submit" class="enlace-boton peligro">Cancelar</button>
+        </form>
+        {% endif %}
+      </td>
     </tr>
     {% else %}
     <tr><td colspan="7">{% if filtros_activos or not ver_todo %}Ningún pago coincide con estos filtros.{% else %}Todavía no hay pagos registrados.{% endif %}</td></tr>

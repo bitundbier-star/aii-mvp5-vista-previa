@@ -8,6 +8,28 @@
   <a class="btn pequeno" href="/pagos/nuevo">+ Registrar pago</a>
 </div>
 
+{% if cancelado %}
+<div class="aviso exito">El pago se canceló. Ya no cuenta para la cartera; la propiedad vuelve a deber ese monto.</div>
+{% endif %}
+{% if error %}
+<div class="aviso error-aviso">{{ error }}</div>
+{% endif %}
+
+{% if pago.cancelado %}
+<div class="aviso" style="background:#fdecea; color:#9f1c14;">
+  <strong>Este pago está cancelado</strong>{% if pago.cancelado_en %} desde el {{ pago.cancelado_en.strftime('%d/%m/%Y %H:%M') }}{% endif %}. No cuenta para la cartera de la propiedad.
+</div>
+{% elif pago.puede_cancelarse %}
+<div class="aviso info" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+  <span>¿Este pago se registró por error? Puedes cancelarlo dentro de las primeras 48 horas.</span>
+  <form method="post" action="/pagos/{{ pago.id }}/cancelar" style="margin:0;"
+        onsubmit="return confirm('¿Cancelar el pago {{ pago.folio }} por ${{ '%.2f'|format(pago.monto) }}? La propiedad vuelve a deber ese monto. El pago no se borra: queda marcado como cancelado.')">
+    <input type="hidden" name="volver" value="comprobante">
+    <button type="submit" class="btn secundario pequeno">Cancelar este pago</button>
+  </form>
+</div>
+{% endif %}
+
 <div class="aviso {{ 'exito' if smtp_real else 'info' }}">
   {% if smtp_real %}
   El comprobante se envió al correo de la cuenta ({{ conjunto.cuenta_email }}){% if enviado_al_vecino %} y también al vecino{% endif %}.

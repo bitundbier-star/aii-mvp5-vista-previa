@@ -16,25 +16,27 @@
 </div>
 {% endif %}
 {% if conjunto %}
-<header class="topbar">
-  <div class="marca-wrap">
-    <a href="/dashboard"><img src="/static/img/logo.png" alt="AII" class="logo-icono"></a>
-    <div class="marca-texto">
-      <a class="marca" href="/dashboard">AII · Vecinos</a><br>
-      <span class="conjunto-nombre">{{ conjunto.nombre }} — {{ conjunto.admin_nombre }}</span>
+<div class="barra-superior">
+  <header class="topbar">
+    <div class="marca-wrap">
+      <a href="/dashboard"><img src="/static/img/logo.png" alt="AII" class="logo-icono"></a>
+      <div class="marca-texto">
+        <a class="marca" href="/dashboard">AII · Vecinos</a><br>
+        <span class="conjunto-nombre">{{ conjunto.nombre }} — {{ conjunto.admin_nombre }}</span>
+      </div>
     </div>
-  </div>
-  <a class="btn secundario pequeno" href="/logout">Salir</a>
-</header>
-<nav class="tabs">
-  <a href="/dashboard" class="{{ 'activo' if request.url.path == '/dashboard' else '' }}">Inicio</a>
-  <a href="/pagos" class="{{ 'activo' if request.url.path.startswith('/pagos') or request.url.path.startswith('/comprobantes') else '' }}">Pagos</a>
-  <a href="/cartera" class="{{ 'activo' if request.url.path == '/cartera' else '' }}">Cartera</a>
-  <a href="/egresos" class="{{ 'activo' if request.url.path == '/egresos' else '' }}">Egresos</a>
-  <a href="/reporte" class="{{ 'activo' if request.url.path == '/reporte' else '' }}">Reporte</a>
-  <a href="/proyectos" class="{{ 'activo' if request.url.path == '/proyectos' else '' }}">Proyectos</a>
-  <a href="/configuracion" class="{{ 'activo' if request.url.path in ('/configuracion', '/administrador', '/propiedades') else '' }}">Configuración</a>
-</nav>
+    <a class="btn secundario pequeno" href="/logout">Salir</a>
+  </header>
+  <nav class="tabs">
+    <a href="/dashboard" class="{{ 'activo' if request.url.path == '/dashboard' else '' }}">Inicio</a>
+    <a href="/pagos" class="{{ 'activo' if request.url.path.startswith('/pagos') or request.url.path.startswith('/comprobantes') else '' }}">Pagos</a>
+    <a href="/cartera" class="{{ 'activo' if request.url.path == '/cartera' else '' }}">Cartera</a>
+    <a href="/egresos" class="{{ 'activo' if request.url.path == '/egresos' else '' }}">Egresos</a>
+    <a href="/reporte" class="{{ 'activo' if request.url.path == '/reporte' else '' }}">Reporte</a>
+    <a href="/proyectos" class="{{ 'activo' if request.url.path == '/proyectos' else '' }}">Proyectos</a>
+    <a href="/configuracion" class="{{ 'activo' if request.url.path in ('/configuracion', '/administrador', '/propiedades') else '' }}">Configuración</a>
+  </nav>
+</div>
 {% endif %}
 <div class="contenedor{{ ' contenedor-angosto' if not conjunto else '' }}">
   {% block contenido %}{% endblock %}

@@ -8,8 +8,8 @@
    Espera en el contexto: `p` (la propiedad) y `est` (estado_saldo(p.saldo_inicial)).
 #}
 <div class="saldo-bloque">
-  <div class="saldo-cab">Saldo inicial de la propiedad <span class="obligatorio">*</span> <span class="ayuda-inline">(al cierre del mes pasado)</span></div>
-  <div class="ayuda" style="margin-top:-4px; margin-bottom:8px;">No incluyas el mes en curso: la cuota de este mes la agrega el sistema solo, en la fecha que corresponda. Si ya pagó este mes, ese pago se registra aparte, no aquí.</div>
+  <div class="saldo-cab">Saldo inicial de la propiedad <span class="obligatorio">*</span> <span class="ayuda-inline">(al día de hoy)</span></div>
+  <div class="ayuda" style="margin-top:-4px; margin-bottom:8px;">Captura lo que de verdad debe (o tiene a favor) <strong>al día de hoy</strong>, sea cual sea ese día del mes — el sistema ya sabe si la cuota de este mes debe sumarse aparte o no. La plataforma no valida que este monto sea correcto: la responsabilidad de subirlo al día es de quien administra la cuenta.</div>
 
   <div class="saldo-opciones">
     <label class="saldo-opcion {{ 'activa' if est.clave == 'cero' }}">

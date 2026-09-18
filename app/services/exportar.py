@@ -61,11 +61,12 @@ def _pagos(conjunto):
             p.propiedad.nombre_dueno or "", p.concepto_legible,
             p.proyecto.concepto if p.proyecto else "",
             p.metodo_pago_legible, f"{p.monto:.2f}",
-            "Sí" if p.abona_a_cartera else "No",
+            "Sí" if (p.abona_a_cartera and not p.cancelado) else "No",
+            "Sí" if p.cancelado else "No",
         ])
     return _csv([
         "Folio", "Fecha", "Propiedad", "Propietario", "Concepto", "Proyecto",
-        "Método de pago", "Monto", "Baja la deuda",
+        "Método de pago", "Monto", "Baja la deuda", "Cancelado",
     ], filas)
 
 

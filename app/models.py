@@ -239,7 +239,7 @@ class Proyecto(Base):
 
     @property
     def total_recaudado(self) -> float:
-        return round(sum(p.monto for p in self.pagos), 2)
+        return round(sum(p.monto for p in self.pagos if not p.cancelado), 2)
 
 
 class Pago(Base):
@@ -268,12 +268,27 @@ class Pago(Base):
     incluye_recargo_tardio = Column(Boolean, nullable=False, default=False)
     monto_base_snapshot = Column(Float, nullable=True)
 
+    # Cancelación dentro de las primeras 48 horas: si alguien registra un
+    # pago por error, se puede deshacer el daño, pero el pago NUNCA se borra
+    # — se marca como cancelado y se queda visible en el historial, con la
+    # fecha en que se canceló. Un pago cancelado deja de contar para la
+    # cartera (la propiedad vuelve a deber ese monto), como si nunca hubiera
+    # entrado dinero.
+    cancelado = Column(Boolean, nullable=False, default=False)
+    cancelado_en = Column(DateTime, nullable=True)
+
     comprobante_path = Column(String(300), nullable=True)
     creado_en = Column(DateTime, nullable=False, default=ahora)
 
     conjunto = relationship("Conjunto", back_populates="pagos")
     propiedad = relationship("Propiedad", back_populates="pagos")
     proyecto = relationship("Proyecto", back_populates="pagos")
+
+    # Ventana para poder cancelar un pago. Se cuenta desde que se registró
+    # (creado_en), no desde la fecha de recepción que se haya capturado —
+    # así alguien no puede "reabrir" un pago viejo solo por haberle puesto
+    # una fecha de recepción reciente.
+    HORAS_LIMITE_CANCELACION = 48
 
     @property
     def concepto_legible(self) -> str:
@@ -288,6 +303,13 @@ class Pago(Base):
     @property
     def abona_a_cartera(self) -> bool:
         return self.concepto in CONCEPTOS_QUE_ABONAN
+
+    @property
+    def puede_cancelarse(self) -> bool:
+        if self.cancelado:
+            return False
+        limite = self.creado_en + dt.timedelta(hours=self.HORAS_LIMITE_CANCELACION)
+        return ahora() <= limite
 
 
 class Egreso(Base):

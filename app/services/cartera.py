@@ -239,7 +239,7 @@ def estado_propiedad(propiedad: Propiedad, hasta: dt.date | None = None) -> dict
     if saldo_inicial < 0:
         a_favor += _aplicar(cargos, -saldo_inicial)
 
-    hasta_la_fecha = [p for p in propiedad.pagos if p.fecha_recepcion <= hasta]
+    hasta_la_fecha = [p for p in propiedad.pagos if p.fecha_recepcion <= hasta and not p.cancelado]
     pagos_abonables = sorted(
         [p for p in hasta_la_fecha if p.abona_a_cartera],
         key=lambda p: (p.fecha_recepcion, p.id),
