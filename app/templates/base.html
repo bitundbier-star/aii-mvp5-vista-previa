@@ -42,6 +42,27 @@
   {% block contenido %}{% endblock %}
 </div>
 <footer class="pie">MVP — Administración Inteligente de Inmuebles</footer>
+{% if conjunto %}
+<button type="button" class="btn-subir-arriba" id="btn-subir-arriba" aria-label="Subir al inicio de la página" title="Subir al inicio">↑</button>
+{% endif %}
+<script>
+// Botón flotante de "subir arriba": aparece después de bajar un poco la
+// página (para no estorbar en pantallas cortas donde ya se ve todo) y
+// sube con scroll suave. Vive en todas las pantallas con menú (listas de
+// Pagos, Egresos, Cartera incluidas) sin necesitar lógica por página.
+(function () {
+  var boton = document.getElementById('btn-subir-arriba');
+  if (!boton) return;
+  function actualizar() {
+    boton.classList.toggle('visible', window.scrollY > 400);
+  }
+  window.addEventListener('scroll', actualizar, { passive: true });
+  boton.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  actualizar();
+})();
+</script>
 <script>
 // Bloque de saldo inicial: las tres opciones son excluyentes, y el campo de
 // monto solo se habilita en la que está elegida. Al enviar, el monto de la

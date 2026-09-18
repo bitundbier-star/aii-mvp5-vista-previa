@@ -32,10 +32,40 @@ body {
 }
 
 .barra-superior {
+  /* -webkit-sticky primero: en Safari/WebViews viejos, "position: sticky"
+     sin el prefijo se ignora por completo y el navegador ni siquiera
+     aplica la línea (la declaración sin prefijo la sobrescribe después en
+     los navegadores que ya no lo necesitan). */
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   z-index: 20;
 }
+
+/* Botón flotante para volver arriba en listas largas (Pagos, Egresos,
+   Cartera). Vive fuera de .contenedor para no empujar el layout ni
+   depender del alto de la página; se muestra/oculta por JS según el
+   scroll (ver base.html). */
+.btn-subir-arriba {
+  display: none;
+  position: fixed;
+  right: 18px;
+  bottom: 22px;
+  z-index: 30;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--azul);
+  color: white;
+  border: none;
+  font-size: 20px;
+  line-height: 44px;
+  text-align: center;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.btn-subir-arriba.visible { display: block; }
 
 header.topbar {
   background: white;
@@ -262,7 +292,13 @@ td.acciones form { display: inline; }
   background: none; border: 0; padding: 0; margin: 0 0 0 10px;
   font-size: 14px; cursor: pointer; text-decoration: underline; color: var(--azul);
 }
-.enlace-boton.peligro { color: var(--rojo); }
+/* Bug de contraste: como `button.peligro` (más abajo) pone fondo rojo
+   sólido y tiene más especificidad que el `background: none` de arriba,
+   estos enlaces-botón terminaban con fondo rojo oscuro Y texto rojo encima
+   — casi ilegible. Aquí se reafirma que este es un link de texto, no un
+   botón sólido: sin fondo, con buen contraste (rojo sobre blanco). */
+.enlace-boton.peligro { color: var(--rojo); background: none; font-weight: 600; }
+.enlace-boton.peligro:hover { background: none; color: #7f1410; }
 
 .fila-cancelada { opacity: 0.6; }
 .fila-cancelada td:not(:last-child) { text-decoration: line-through; }

@@ -4,10 +4,14 @@ volver a subirla, en vez de capturar propiedad por propiedad en pantalla.
 El archivo trae un renglón por cada propiedad que YA EXISTE en el conjunto
 (las que se crearon numeradas al dar de alta la cuenta) — nunca renglones en
 blanco. Al subirlo de regreso se empareja por «ID», una columna interna que
-no se puede editar y que identifica a la propiedad sin importar qué número
-tenga puesto. El «Número» de al lado sí es editable: es la etiqueta que ve el
-vecino (puede tener letras y números), y cambiarla aquí cambia el número real
-de la propiedad, igual que si se editara a mano en Configuración.
+identifica a la propiedad sin importar qué número tenga puesto. Esa columna
+va oculta en el archivo (y protegida, para que no se pueda desocultar ni
+editar por accidente) porque no le sirve de nada al usuario verla — solo
+existe para que el sistema encuentre la propiedad correcta al subir el
+archivo de regreso. El «Número» de al lado sí es editable y visible: es la
+etiqueta que ve el vecino (puede tener letras y números), y cambiarla aquí
+cambia el número real de la propiedad, igual que si se editara a mano en
+Configuración.
 
 Por qué separar las dos cosas: antes se emparejaba por «Número», así que si
 alguien cambiaba el número de una propiedad y luego subía el Excel con ese
@@ -99,6 +103,13 @@ def generar_plantilla(conjunto) -> bytes:
         c.protection = _LOCKED
         ws.column_dimensions[get_column_letter(i)].width = ancho
     ws.row_dimensions[1].height = 30
+
+    # La columna ID es de uso interno: se oculta para no confundir al
+    # usuario (no hay nada que tenga que hacer con ella). Sigue en el
+    # archivo y se sigue usando para emparejar al subir de regreso; solo no
+    # se ve. `formatColumns = False` (más abajo, junto con la protección de
+    # la hoja) evita que alguien la desoculte por su cuenta.
+    ws.column_dimensions[get_column_letter(COL_ID)].hidden = True
 
     propiedades = sorted(conjunto.propiedades, key=orden_natural)
     for fila_idx, p in enumerate(propiedades, start=2):

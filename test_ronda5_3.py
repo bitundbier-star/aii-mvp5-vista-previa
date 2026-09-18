@@ -84,6 +84,13 @@ r = s.get(f"{BASE}/dashboard")
 check("dashboard responde", r.status_code == 200)
 check("header y nav están envueltos en barra-superior", '<div class="barra-superior">' in r.text)
 check(".barra-superior es sticky en el css", ".barra-superior {" in css and "position: sticky;" in css.split(".barra-superior {")[1].split("}")[0])
+check("botón de subir arriba presente en la página", 'id="btn-subir-arriba"' in r.text)
+
+# ---------------------------------------------------------------------------
+# 3.1 Ronda 5.4: contraste del botón Cancelar/Eliminar (enlace-boton peligro)
+# ---------------------------------------------------------------------------
+bloque_epeligro = css.split(".enlace-boton.peligro {")[1].split("}")[0]
+check("enlace-boton.peligro ya no hereda el fondo rojo sólido de button.peligro", "background: none" in bloque_epeligro)
 
 # ---------------------------------------------------------------------------
 # 4. Cancelar un pago dentro de 48 horas
