@@ -556,3 +556,9 @@ button.peligro:hover { background: #9f1c14; }
   header.topbar .marca { font-size: 13px; }
   header.topbar .logo-icono { height: 32px; }
 }
+
+/* Proyectos cancelados */
+.fila-cancelada td { opacity: 0.6; }
+.fila-cancelada td:first-child { opacity: 1; }
+.enlace.peligro { color: var(--rojo); }
+.enlace.peligro:hover { color: #9f1c14; }

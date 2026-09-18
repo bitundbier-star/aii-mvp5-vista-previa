@@ -126,7 +126,7 @@
   <h2>Proyectos activos o en recaudación de fondos</h2>
   <table>
     <tr><th>Proyecto</th><th class="num">Monto total</th><th class="num">Recaudado</th><th class="num">Falta</th><th>Avance de recaudación</th></tr>
-    {% for p in reporte.proyectos_en_curso %}
+    {% for p in reporte.proyectos_en_curso + reporte.proyectos_cancelados_mes %}
     <tr>
       <td>{{ p.nombre }}</td>
       <td class="num">{{ p.monto_total|dinero }}</td>

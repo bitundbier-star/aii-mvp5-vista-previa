@@ -29,6 +29,7 @@
         <span class="conjunto-nombre">{{ conjunto.nombre }} — {{ conjunto.admin_nombre }}</span>
       </div>
     </div>
+    <button type="button" class="btn secundario pequeno" id="btn-ayuda" onclick="AII.ayuda.abrir()">? Ayuda</button>
     <a class="btn secundario pequeno" href="/logout">Salir</a>
   </header>
   <nav class="tabs">
@@ -160,5 +161,130 @@ document.querySelectorAll('.saldo-bloque').forEach(function (bloque) {
   sincronizar();
 });
 </script>
+
+<!-- =========================================================
+     RECORRIDO DE AYUDA
+     Ventanita paso a paso que explica cada sección de la app.
+     Se activa con el botón "? Ayuda" del menú.
+========================================================= -->
+<div id="ayuda-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9000;" onclick="AII.ayuda.cerrar()"></div>
+<div id="ayuda-modal" role="dialog" aria-modal="true" aria-labelledby="ayuda-titulo"
+     style="display:none; position:fixed; z-index:9001; background:#fff; border-radius:12px;
+            box-shadow:0 8px 40px rgba(0,0,0,.22); padding:28px 28px 20px; max-width:440px; width:90%;
+            top:50%; left:50%; transform:translate(-50%,-50%);">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+    <div id="ayuda-icono" style="font-size:36px; line-height:1; flex-shrink:0;"></div>
+    <button onclick="AII.ayuda.cerrar()" aria-label="Cerrar ayuda"
+            style="background:none; border:none; font-size:22px; cursor:pointer; color:#888; padding:0; margin:0;">✕</button>
+  </div>
+  <h2 id="ayuda-titulo" style="margin:10px 0 6px; font-size:18px;"></h2>
+  <p id="ayuda-texto" style="margin:0 0 20px; color:#444; font-size:15px; line-height:1.6;"></p>
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div id="ayuda-puntos" style="display:flex; gap:6px;"></div>
+    <div style="display:flex; gap:8px;">
+      <button id="ayuda-btn-prev" onclick="AII.ayuda.ir(-1)"
+              style="background:#f0f0f2; color:#333; border:none; border-radius:8px; padding:8px 16px; font-size:14px; cursor:pointer;">← Anterior</button>
+      <button id="ayuda-btn-next" onclick="AII.ayuda.ir(1)"
+              style="background:var(--azul); color:#fff; border:none; border-radius:8px; padding:8px 16px; font-size:14px; font-weight:600; cursor:pointer;">Siguiente →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var PASOS = [
+    {
+      icono: "🏠",
+      titulo: "Inicio",
+      texto: "El tablero principal te muestra el saldo disponible del conjunto, cuántas propiedades están al corriente y cuántas tienen adeudo, todo al día de hoy. Es el punto de partida cada vez que entras."
+    },
+    {
+      icono: "💳",
+      titulo: "Pagos",
+      texto: "Aquí registras los pagos que recibes de los vecinos. Puedes capturar en un mismo depósito varios conceptos (mantenimiento, gas, proyecto…). El sistema genera un comprobante automáticamente y lo manda al correo de la cuenta."
+    },
+    {
+      icono: "📊",
+      titulo: "Cartera",
+      texto: "Ve el estado de cuenta de cada propiedad: cuánto deben, cuánto llevan pagado y si están al corriente. El saldo se calcula en vivo, aplicando cada pago al adeudo más viejo primero."
+    },
+    {
+      icono: "📤",
+      titulo: "Egresos",
+      texto: "Registra los gastos del conjunto: jardinería, luz de áreas comunes, mantenimiento, etc. Cada egreso lleva su recibo o factura adjunto para que quede constancia de todo dinero que sale."
+    },
+    {
+      icono: "📄",
+      titulo: "Reporte",
+      texto: "Genera el reporte mensual con el estado financiero completo: saldos, egresos, flujo de caja y el detalle por propiedad. Se descarga en PDF, se comparte por WhatsApp o se manda por correo a los vecinos y al comité."
+    },
+    {
+      icono: "🔧",
+      titulo: "Proyectos",
+      texto: "Gestiona cuotas extraordinarias para proyectos específicos: impermeabilización, cámaras de seguridad, elevador… Puedes registrar hasta 3 cotizaciones para comparar proveedores y llevar el control de quién ya pagó."
+    },
+    {
+      icono: "⚙️",
+      titulo: "Configuración",
+      texto: "Administra las propiedades, los correos de los vecinos, el monto de la cuota de mantenimiento y los datos del conjunto. También puedes descargar el historial completo y traspasar la administración a otra persona cuando cambies de encargado."
+    },
+    {
+      icono: "📩",
+      titulo: "Correos automáticos",
+      texto: "Cada vez que registras un pago, un egreso o generas un reporte, la plataforma manda un correo de aviso al correo de la cuenta. Así siempre hay un rastro de todo lo que entra y sale, sin que tengas que acordarte de mandarlo."
+    },
+    {
+      icono: "🔄",
+      titulo: "Traspaso de administración",
+      texto: "Cuando cambia el encargado de la administración, puedes traspasarla desde Configuración. El nuevo administrador recibe acceso y el historial completo queda intacto: nada se borra al cambiar de manos."
+    }
+  ];
+
+  var paso = 0;
+
+  function render() {
+    var p = PASOS[paso];
+    document.getElementById('ayuda-icono').textContent = p.icono;
+    document.getElementById('ayuda-titulo').textContent = p.titulo;
+    document.getElementById('ayuda-texto').textContent = p.texto;
+    document.getElementById('ayuda-btn-prev').style.display = paso === 0 ? 'none' : '';
+    var btnNext = document.getElementById('ayuda-btn-next');
+    btnNext.textContent = paso === PASOS.length - 1 ? 'Cerrar ✓' : 'Siguiente →';
+    var puntos = document.getElementById('ayuda-puntos');
+    puntos.innerHTML = '';
+    for (var i = 0; i < PASOS.length; i++) {
+      var d = document.createElement('div');
+      d.style.cssText = 'width:8px; height:8px; border-radius:50%; background:' + (i === paso ? 'var(--azul)' : '#ddd') + '; cursor:pointer;';
+      (function(idx){ d.onclick = function(){ paso = idx; render(); }; })(i);
+      puntos.appendChild(d);
+    }
+  }
+
+  AII.ayuda = {
+    abrir: function () {
+      paso = 0; render();
+      document.getElementById('ayuda-overlay').style.display = '';
+      document.getElementById('ayuda-modal').style.display = '';
+      document.getElementById('ayuda-modal').focus();
+    },
+    cerrar: function () {
+      document.getElementById('ayuda-overlay').style.display = 'none';
+      document.getElementById('ayuda-modal').style.display = 'none';
+    },
+    ir: function (delta) {
+      paso += delta;
+      if (paso >= PASOS.length) { AII.ayuda.cerrar(); return; }
+      if (paso < 0) paso = 0;
+      render();
+    }
+  };
+
+  // Cerrar con Escape
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') AII.ayuda.cerrar();
+  });
+})();
+</script>
+
 </body>
 </html>

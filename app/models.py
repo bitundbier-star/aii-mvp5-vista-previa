@@ -239,8 +239,31 @@ class Proyecto(Base):
     fecha_alta = Column(Date, nullable=False, default=hoy)
     fecha_limite_pago = Column(Date, nullable=True)
 
+    # Cotizaciones (hasta 3, todas opcionales)
+    cot1_path   = Column(String(300), nullable=True)
+    cot1_proveedor = Column(String(200), nullable=True)
+    cot1_monto  = Column(Float, nullable=True)
+    cot2_path   = Column(String(300), nullable=True)
+    cot2_proveedor = Column(String(200), nullable=True)
+    cot2_monto  = Column(Float, nullable=True)
+    cot3_path   = Column(String(300), nullable=True)
+    cot3_proveedor = Column(String(200), nullable=True)
+    cot3_monto  = Column(Float, nullable=True)
+
+    # Descripción estructurada del proyecto
+    descripcion_detalle = Column(Text, nullable=True)   # características y descripción
+    compromisos_proveedor = Column(Text, nullable=True)  # a qué se compromete el proveedor
+
     estado = Column(String(30), nullable=False, default="por_iniciar")
     comentario_estado = Column(Text, nullable=True)
+
+    # Cancelación
+    cancelado = Column(Boolean, nullable=False, default=False)
+    cancelado_en = Column(DateTime, nullable=True)
+    cancelado_motivo = Column(Text, nullable=True)
+    cancelado_sin_recuperar = Column(Float, nullable=True)  # monto que el proveedor se quedó
+    cancelado_reparto_perdida = Column(String(30), nullable=True)  # "pagaron" | "todas"
+    cancelado_credito_modo = Column(String(30), nullable=True)     # "cubrir_deuda" | "todo_favor"
 
     conjunto = relationship("Conjunto", back_populates="proyectos")
     pagos = relationship("Pago", back_populates="proyecto")
@@ -251,7 +274,7 @@ class Proyecto(Base):
 
     @property
     def en_curso(self) -> bool:
-        return self.estado in ("por_iniciar", "en_recaudacion", "en_proceso")
+        return self.estado in ("por_iniciar", "en_recaudacion", "en_proceso") and not self.cancelado
 
     @property
     def total_recaudado(self) -> float:

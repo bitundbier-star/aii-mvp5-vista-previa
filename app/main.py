@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, Depends, Form, UploadFile, File
-from fastapi.responses import RedirectResponse, HTMLResponse, Response
+from fastapi.responses import RedirectResponse, HTMLResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -1163,37 +1163,69 @@ def proyectos_lista(request: Request, conjunto=Depends(requerir_login), db: Sess
         estados=ESTADOS_PROYECTO,
         estados_dict=ESTADOS_PROYECTO_DICT,
         error=request.query_params.get("error"),
+        cancelado=request.query_params.get("cancelado") == "1",
     )
 
 
 @app.post("/proyectos/nuevo")
-def proyecto_nuevo(
+async def proyecto_nuevo(
     request: Request,
     concepto: str = Form(...),
     descripcion: str = Form(""),
+    descripcion_detalle: str = Form(""),
+    compromisos_proveedor: str = Form(""),
     monto_total: float = Form(...),
     fecha_limite_pago: str = Form(""),
     estado: str = Form("por_iniciar"),
     comentario_estado: str = Form(""),
+    cot1: UploadFile | None = File(None),
+    cot1_proveedor: str = Form(""),
+    cot1_monto: str = Form(""),
+    cot2: UploadFile | None = File(None),
+    cot2_proveedor: str = Form(""),
+    cot2_monto: str = Form(""),
+    cot3: UploadFile | None = File(None),
+    cot3_proveedor: str = Form(""),
+    cot3_monto: str = Form(""),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
 ):
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
-    db.add(
-        models.Proyecto(
-            conjunto_id=conjunto.id,
-            concepto=concepto,
-            descripcion=descripcion or None,
-            monto_total=monto_total,
-            monto_por_propiedad=monto_por_propiedad_calculado(conjunto, monto_total),
-            fecha_limite_pago=dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date()
-            if fecha_limite_pago
-            else None,
-            estado=estado,
-            comentario_estado=comentario_estado or None,
-        )
+
+    def _monto_cot(v: str) -> float | None:
+        try:
+            return float(v.replace(",", "").strip()) if v.strip() else None
+        except ValueError:
+            return None
+
+    proyecto = models.Proyecto(
+        conjunto_id=conjunto.id,
+        concepto=concepto,
+        descripcion=descripcion or None,
+        descripcion_detalle=descripcion_detalle or None,
+        compromisos_proveedor=compromisos_proveedor or None,
+        monto_total=monto_total,
+        monto_por_propiedad=monto_por_propiedad_calculado(conjunto, monto_total),
+        fecha_limite_pago=dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date()
+        if fecha_limite_pago
+        else None,
+        estado=estado,
+        comentario_estado=comentario_estado or None,
+        cot1_proveedor=cot1_proveedor or None,
+        cot1_monto=_monto_cot(cot1_monto),
+        cot2_proveedor=cot2_proveedor or None,
+        cot2_monto=_monto_cot(cot2_monto),
+        cot3_proveedor=cot3_proveedor or None,
+        cot3_monto=_monto_cot(cot3_monto),
     )
+    db.add(proyecto)
+    db.flush()   # necesitamos el id para nombrar los archivos
+
+    for slot, archivo in [("cot1", cot1), ("cot2", cot2), ("cot3", cot3)]:
+        if _archivo_subido(archivo):
+            setattr(proyecto, f"{slot}_path", _guardar_cot(archivo, conjunto.id, slot))
+
     db.commit()
     return RedirectResponse("/proyectos", status_code=302)
 
@@ -1211,32 +1243,64 @@ def proyecto_editar_form(
 
 
 @app.post("/proyectos/{proyecto_id}/editar")
-def proyecto_editar_submit(
+async def proyecto_editar_submit(
     proyecto_id: int,
     request: Request,
     concepto: str = Form(...),
     descripcion: str = Form(""),
+    descripcion_detalle: str = Form(""),
+    compromisos_proveedor: str = Form(""),
     monto_total: float = Form(...),
     fecha_limite_pago: str = Form(""),
     estado: str = Form("por_iniciar"),
     comentario_estado: str = Form(""),
+    cot1: UploadFile | None = File(None),
+    cot1_proveedor: str = Form(""),
+    cot1_monto: str = Form(""),
+    cot2: UploadFile | None = File(None),
+    cot2_proveedor: str = Form(""),
+    cot2_monto: str = Form(""),
+    cot3: UploadFile | None = File(None),
+    cot3_proveedor: str = Form(""),
+    cot3_monto: str = Form(""),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
 ):
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
-    if proyecto:
-        proyecto.concepto = concepto
-        proyecto.descripcion = descripcion or None
-        proyecto.monto_total = monto_total
-        proyecto.monto_por_propiedad = monto_por_propiedad_calculado(conjunto, monto_total)
-        proyecto.fecha_limite_pago = (
-            dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date() if fecha_limite_pago else None
-        )
-        proyecto.estado = estado
-        proyecto.comentario_estado = comentario_estado or None
-        db.commit()
+    if not proyecto:
+        return RedirectResponse("/proyectos", status_code=302)
+
+    def _monto_cot(v: str) -> float | None:
+        try:
+            return float(v.replace(",", "").strip()) if v.strip() else None
+        except ValueError:
+            return None
+
+    proyecto.concepto = concepto
+    proyecto.descripcion = descripcion or None
+    proyecto.descripcion_detalle = descripcion_detalle or None
+    proyecto.compromisos_proveedor = compromisos_proveedor or None
+    proyecto.monto_total = monto_total
+    proyecto.monto_por_propiedad = monto_por_propiedad_calculado(conjunto, monto_total)
+    proyecto.fecha_limite_pago = (
+        dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date() if fecha_limite_pago else None
+    )
+    proyecto.estado = estado
+    proyecto.comentario_estado = comentario_estado or None
+    proyecto.cot1_proveedor = cot1_proveedor or None
+    proyecto.cot1_monto = _monto_cot(cot1_monto)
+    proyecto.cot2_proveedor = cot2_proveedor or None
+    proyecto.cot2_monto = _monto_cot(cot2_monto)
+    proyecto.cot3_proveedor = cot3_proveedor or None
+    proyecto.cot3_monto = _monto_cot(cot3_monto)
+
+    for slot, archivo in [("cot1", cot1), ("cot2", cot2), ("cot3", cot3)]:
+        if _archivo_subido(archivo):
+            setattr(proyecto, f"{slot}_path", _guardar_cot(archivo, conjunto.id, slot))
+
+    db.commit()
     return RedirectResponse("/proyectos", status_code=302)
 
 
@@ -1262,6 +1326,247 @@ def proyecto_eliminar(
     db.delete(proyecto)
     db.commit()
     return RedirectResponse("/proyectos", status_code=302)
+
+
+
+@app.get("/proyectos/{proyecto_id}/cancelar", response_class=HTMLResponse)
+def proyecto_cancelar_form(
+    proyecto_id: int,
+    request: Request,
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Pantalla de cancelación con vista previa del impacto en cada propiedad."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
+    if not proyecto or proyecto.cancelado:
+        return RedirectResponse("/proyectos", status_code=302)
+    return tpl(request, "proyecto_cancelar.html", conjunto=conjunto, proyecto=proyecto,
+               preview=None, error=None)
+
+
+def _preview_cancelacion(proyecto, sin_recuperar: float,
+                          reparto: str, credito_modo: str) -> list[dict]:
+    """Calcula qué le pasaría a cada propiedad si se cancela el proyecto.
+
+    Devuelve una lista de filas con:
+    - propiedad, pagado_al_proyecto, perdida_asignada, devuelto,
+      saldo_actual, saldo_nuevo, delta (negativo = favor, positivo = debe más)
+    """
+    from app.services.cartera import estado_propiedad
+
+    pagos_proyecto = [
+        p for p in proyecto.pagos
+        if not p.cancelado and p.concepto == "proyecto"
+    ]
+
+    # Mapa propiedad_id → cuánto pagó al proyecto
+    pagado_por = {}
+    for p in pagos_proyecto:
+        pagado_por[p.propiedad_id] = round(pagado_por.get(p.propiedad_id, 0.0) + p.monto, 2)
+
+    total_recaudado = round(sum(pagado_por.values()), 2)
+    sin_recuperar = max(0.0, min(round(sin_recuperar, 2), total_recaudado))
+
+    propiedades_activas = [prop for prop in proyecto.conjunto.propiedades if prop.activo]
+    n_todas = len(propiedades_activas)
+    n_pagaron = len(pagado_por)
+
+    filas = []
+    for prop in sorted(propiedades_activas, key=lambda x: x.id):
+        pagado = round(pagado_por.get(prop.id, 0.0), 2)
+        estado_actual = estado_propiedad(prop)
+        saldo_actual = round(estado_actual["saldo"], 2)
+
+        if reparto == "todas":
+            # La pérdida se divide entre todas las propiedades activas
+            perdida = round(sin_recuperar / n_todas, 2) if n_todas else 0.0
+        else:
+            # Solo entre quienes pagaron, en proporción a lo que aportaron
+            if pagado > 0 and total_recaudado > 0:
+                perdida = round(sin_recuperar * pagado / total_recaudado, 2)
+            else:
+                perdida = 0.0
+
+        devuelto = max(0.0, round(pagado - perdida, 2))
+
+        if credito_modo == "todo_favor":
+            # Todo lo devuelto queda como saldo a favor, sin tocar el adeudo
+            saldo_nuevo = round(saldo_actual - devuelto, 2)
+        else:
+            # Lo devuelto primero cubre lo que deba, y solo el sobrante queda a favor
+            debe = max(0.0, saldo_actual)
+            cubre = min(devuelto, debe)
+            sobrante = round(devuelto - cubre, 2)
+            saldo_nuevo = round(saldo_actual - cubre - sobrante, 2)
+
+        filas.append({
+            "propiedad": prop,
+            "pagado": pagado,
+            "perdida": perdida,
+            "devuelto": devuelto,
+            "saldo_actual": saldo_actual,
+            "saldo_nuevo": saldo_nuevo,
+            "cambia": abs(saldo_nuevo - saldo_actual) > 0.005,
+        })
+
+    return filas
+
+
+@app.post("/proyectos/{proyecto_id}/cancelar/preview")
+def proyecto_cancelar_preview(
+    proyecto_id: int,
+    request: Request,
+    motivo: str = Form(""),
+    sin_recuperar: str = Form("0"),
+    reparto_perdida: str = Form("pagaron"),
+    credito_modo: str = Form("cubrir_deuda"),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Calcula la vista previa sin aplicar nada."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
+    if not proyecto or proyecto.cancelado:
+        return RedirectResponse("/proyectos", status_code=302)
+    try:
+        monto_no_rec = float((sin_recuperar or "0").replace(",", "").strip())
+    except ValueError:
+        monto_no_rec = 0.0
+    error = None
+    if not motivo.strip():
+        error = "Escribe el motivo de la cancelación antes de ver la vista previa."
+    preview = None if error else _preview_cancelacion(proyecto, monto_no_rec, reparto_perdida, credito_modo)
+    return tpl(request, "proyecto_cancelar.html", conjunto=conjunto, proyecto=proyecto,
+               preview=preview, error=error,
+               form={"motivo": motivo, "sin_recuperar": sin_recuperar,
+                     "reparto_perdida": reparto_perdida, "credito_modo": credito_modo})
+
+
+@app.post("/proyectos/{proyecto_id}/cancelar/confirmar")
+async def proyecto_cancelar_confirmar(
+    proyecto_id: int,
+    request: Request,
+    motivo: str = Form(...),
+    sin_recuperar: str = Form("0"),
+    reparto_perdida: str = Form("pagaron"),
+    credito_modo: str = Form("cubrir_deuda"),
+    respaldo: UploadFile | None = File(None),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Aplica la cancelación: marca el proyecto, cancela sus pagos y crea
+    los créditos (pagos con monto negativo) para cada propiedad."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
+    if not proyecto or proyecto.cancelado:
+        return RedirectResponse("/proyectos", status_code=302)
+    if not motivo.strip():
+        return tpl(request, "proyecto_cancelar.html", conjunto=conjunto, proyecto=proyecto,
+                   preview=None, error="El motivo es obligatorio.")
+
+    try:
+        monto_no_rec = float((sin_recuperar or "0").replace(",", "").strip())
+    except ValueError:
+        monto_no_rec = 0.0
+
+    preview = _preview_cancelacion(proyecto, monto_no_rec, reparto_perdida, credito_modo)
+    ahora = dt.datetime.utcnow()
+
+    # 1. Cancelar los pagos del proyecto (dejan de sumar en la cartera)
+    for pago in proyecto.pagos:
+        if not pago.cancelado:
+            pago.cancelado = True
+            pago.cancelado_en = ahora
+
+    # 2. Crear créditos de reembolso para las propiedades que recibirán algo.
+    #    Se usan pagos de concepto "mantenimiento" con monto = devuelto para
+    #    que la cartera los aplique como saldo a favor.  Con credito_modo
+    #    "todo_favor" se usa concepto "otros" para que no baje la deuda de
+    #    mantenimiento (el crédito se queda a favor libre).
+    for fila in preview:
+        if fila["devuelto"] <= 0.005:
+            continue
+        concepto_credito = "mantenimiento" if credito_modo == "cubrir_deuda" else "otros"
+        conjunto.ultimo_folio += 1
+        folio = f"AII-{conjunto.id:04d}-{conjunto.ultimo_folio:05d}"
+        db.add(models.Pago(
+            conjunto_id=conjunto.id,
+            propiedad_id=fila["propiedad"].id,
+            folio=folio,
+            recibo=folio,
+            fecha_recepcion=ahora.date(),
+            monto=fila["devuelto"],
+            concepto=concepto_credito,
+            metodo_pago="otro",
+        ))
+
+    # 3. Guardar respaldo si se subió uno
+    ruta_respaldo = None
+    if _archivo_subido(respaldo):
+        ruta_respaldo = _guardar_cot(respaldo, conjunto.id, "cancelacion")
+
+    # 4. Marcar el proyecto como cancelado
+    proyecto.cancelado = True
+    proyecto.cancelado_en = ahora
+    proyecto.cancelado_motivo = motivo.strip()
+    proyecto.cancelado_sin_recuperar = round(monto_no_rec, 2)
+    proyecto.cancelado_reparto_perdida = reparto_perdida
+    proyecto.cancelado_credito_modo = credito_modo
+    if ruta_respaldo:
+        proyecto.cot3_path = ruta_respaldo   # reutilizamos un slot libre
+
+    db.commit()
+    return RedirectResponse("/proyectos?cancelado=1", status_code=302)
+
+
+# ---------------------------------------------------------------------------
+# Archivos de proyectos (cotizaciones)
+# ---------------------------------------------------------------------------
+ARCHIVOS_PROYECTOS_DIR = os.path.join(DATA_DIR, "archivos_proyectos")
+os.makedirs(ARCHIVOS_PROYECTOS_DIR, exist_ok=True)
+
+COTIZACION_CAMPOS = ["cot1", "cot2", "cot3"]
+
+def _guardar_cot(archivo, conjunto_id: int, slot: str) -> str:
+    ext = os.path.splitext(archivo.filename)[1].lower() or TIPO_A_EXT.get(archivo.content_type or "", "")
+    nombre = f"{conjunto_id}_{slot}_{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(ARCHIVOS_PROYECTOS_DIR, nombre), "wb") as f:
+        shutil.copyfileobj(archivo.file, f)
+    return nombre
+
+def _ruta_cot(nombre: str | None) -> str | None:
+    if not nombre:
+        return None
+    ruta = os.path.join(ARCHIVOS_PROYECTOS_DIR, os.path.basename(nombre))
+    return ruta if os.path.exists(ruta) else None
+
+def _cot_url(proyecto_id: int, slot: str) -> str:
+    return f"/proyectos/{proyecto_id}/cotizacion/{slot}"
+
+
+@app.get("/proyectos/{proyecto_id}/cotizacion/{slot}")
+def proyecto_cotizacion(
+    proyecto_id: int,
+    slot: str,
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    if not conjunto or slot not in COTIZACION_CAMPOS:
+        return RedirectResponse("/proyectos", status_code=302)
+    proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
+    if not proyecto:
+        return RedirectResponse("/proyectos", status_code=302)
+    ruta = _ruta_cot(getattr(proyecto, f"{slot}_path"))
+    if not ruta:
+        return HTMLResponse("<p style='font-family:sans-serif'>Archivo no disponible en el servidor.</p>", status_code=404)
+    import mimetypes
+    tipo = mimetypes.guess_type(ruta)[0] or "application/octet-stream"
+    nombre_archivo = f"Cotizacion {slot[-1]} {proyecto.concepto[:40]}{os.path.splitext(ruta)[1]}"
+    return FileResponse(ruta, media_type=tipo, filename=nombre_archivo, content_disposition_type="inline")
 
 
 # ---------------------------------------------------------------------------

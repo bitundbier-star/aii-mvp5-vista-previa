@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block titulo %}Cancelar proyecto{% endblock %}
+{% block ancho %}angosto{% endblock %}
+{% block contenido %}
+<h1>Cancelar proyecto</h1>
+<h2 style="color:var(--rojo); margin-top:0;">{{ proyecto.concepto }}</h2>
+<p class="ayuda">El proyecto recaudó <strong>{{ proyecto.total_recaudado|dinero }}</strong> en total. Cancelarlo <strong>no borra</strong> los pagos que ya se registraron: los deshace en la cartera y le asigna el crédito correspondiente a cada propiedad que había pagado.</p>
+
+{% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="/proyectos/{{ proyecto.id }}/cancelar/preview" id="form-preview">
+    <label>Motivo de la cancelación <span class="obligatorio">*</span></label>
+    <textarea name="motivo" required rows="3" placeholder="Por ejemplo: el proveedor no pudo comprometerse a los tiempos acordados, la asamblea decidió posponer el proyecto, etc.">{{ form.motivo if form else '' }}</textarea>
+
+    <div class="fila-campos" style="margin-top:14px;">
+      <div>
+        <label style="margin-top:0;">¿Cuánto dinero NO se pudo recuperar?</label>
+        <div class="campo-moneda">
+          <span>$</span>
+          <input type="number" step="0.01" min="0" max="{{ proyecto.total_recaudado }}" name="sin_recuperar"
+                 value="{{ form.sin_recuperar if form else '0' }}" placeholder="0.00" id="inp-sin-recuperar" oninput="toggleReparto()">
+        </div>
+        <div class="ayuda">Si el proveedor ya recibió un anticipo y no lo va a devolver, escribe ese monto aquí. Si se recupera todo, deja el 0.</div>
+      </div>
+      <div>
+        <label style="margin-top:0;">¿Cómo se reparte esa pérdida?</label>
+        <div class="selector-opciones" id="bloque-reparto">
+          <label><input type="radio" name="reparto_perdida" value="pagaron" {{ 'checked' if not form or form.reparto_perdida == 'pagaron' }}> Solo entre quienes pagaron (en proporción a lo que aportaron)</label>
+          <label><input type="radio" name="reparto_perdida" value="todas" {{ 'checked' if form and form.reparto_perdida == 'todas' }}> Entre todas las propiedades activas por igual</label>
+        </div>
+      </div>
+    </div>
+
+    <label style="margin-top:14px;">¿Qué pasa con el dinero que sí se recupera?</label>
+    <div class="selector-opciones">
+      <label><input type="radio" name="credito_modo" value="cubrir_deuda" {{ 'checked' if not form or form.credito_modo == 'cubrir_deuda' }}> Primero cubre lo que debe cada propiedad; lo que sobre queda a favor <span class="ayuda">(recomendado)</span></label>
+      <label><input type="radio" name="credito_modo" value="todo_favor" {{ 'checked' if form and form.credito_modo == 'todo_favor' }}> Todo queda como saldo a favor, sin tocar el adeudo de mantenimiento</label>
+    </div>
+
+    <button type="submit" class="secundario" style="margin-top:16px;">Ver vista previa del impacto</button>
+  </form>
+</div>
+
+{% if preview is not none %}
+<div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">Vista previa: qué le pasaría a cada propiedad</h3>
+  <p class="ayuda">Nadie recibe dinero en efectivo: el crédito se registra en la plataforma y reduce lo que esa propiedad deba en el futuro.</p>
+  <table>
+    <tr>
+      <th>Propiedad</th>
+      <th class="num">Pagó al proyecto</th>
+      <th class="num">Pérdida asignada</th>
+      <th class="num">Crédito que recibe</th>
+      <th class="num">Saldo actual</th>
+      <th class="num">Saldo nuevo</th>
+    </tr>
+    {% for f in preview %}
+    <tr {{ 'style="opacity:0.5;"' if not f.cambia and f.pagado == 0 }}>
+      <td>{{ f.propiedad.etiqueta }}{% if f.propiedad.nombre_dueno %}<div class="ayuda">{{ f.propiedad.nombre_dueno }}</div>{% endif %}</td>
+      <td class="num">{{ f.pagado|dinero }}</td>
+      <td class="num {{ 'saldo-debe' if f.perdida > 0 }}">{{ f.perdida|dinero }}</td>
+      <td class="num {{ 'saldo-favor' if f.devuelto > 0 }}"><strong>{{ f.devuelto|dinero }}</strong></td>
+      <td class="num {{ 'saldo-debe' if f.saldo_actual > 0 else ('saldo-favor' if f.saldo_actual < -0.005 else '') }}">{{ f.saldo_actual|dinero }}</td>
+      <td class="num {{ 'saldo-debe' if f.saldo_nuevo > 0 else ('saldo-favor' if f.saldo_nuevo < -0.005 else '') }}"><strong>{{ f.saldo_nuevo|dinero }}</strong></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="ayuda" style="margin-top:8px;">Saldo negativo = la propiedad quedaría a favor. Saldo positivo = todavía debería algo.</p>
+</div>
+
+<div class="card" style="margin-top:16px; border-left: 4px solid var(--rojo);">
+  <h3 style="margin-top:0; color:var(--rojo);">Confirmar cancelación</h3>
+  <p>Esta acción <strong>no se puede deshacer</strong>. Si después hay un cambio de postura y el proyecto se reactiva, tendrá que crearse de nuevo.</p>
+  <form method="post" action="/proyectos/{{ proyecto.id }}/cancelar/confirmar" enctype="multipart/form-data"
+        onsubmit="return confirm('¿Confirmas la cancelación del proyecto {{ proyecto.concepto }}? Los créditos se aplicarán de inmediato.')">
+    <input type="hidden" name="motivo" value="{{ form.motivo }}">
+    <input type="hidden" name="sin_recuperar" value="{{ form.sin_recuperar }}">
+    <input type="hidden" name="reparto_perdida" value="{{ form.reparto_perdida }}">
+    <input type="hidden" name="credito_modo" value="{{ form.credito_modo }}">
+    <div class="archivo-campo">
+      <label>Documento de respaldo (opcional)</label>
+      <input type="file" name="respaldo" accept="image/*,application/pdf">
+      <div class="ayuda">El acta de la asamblea donde se decidió cancelar, la carta del proveedor, o cualquier otro documento que justifique la cancelación.</div>
+    </div>
+    <button type="submit" style="background:var(--rojo); margin-top:14px;">Sí, cancelar el proyecto definitivamente</button>
+    <a class="btn secundario" href="/proyectos/{{ proyecto.id }}/editar">No, volver al proyecto</a>
+  </form>
+</div>
+{% endif %}
+
+<p style="margin-top:16px;"><a class="enlace" href="/proyectos">← Volver a proyectos</a></p>
+
+<script>
+function toggleReparto() {
+  var v = parseFloat(document.getElementById('inp-sin-recuperar').value) || 0;
+  document.getElementById('bloque-reparto').style.opacity = v > 0 ? '1' : '0.4';
+}
+toggleReparto();
+</script>
+{% endblock %}

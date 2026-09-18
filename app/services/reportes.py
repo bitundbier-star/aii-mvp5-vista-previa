@@ -223,6 +223,22 @@ def datos_reporte(
         "propiedades_al_corriente": al_corriente,
         "propiedades_con_adeudo": con_adeudo,
         "proyectos_en_curso": proyectos_en_curso,
+        "proyectos_cancelados_mes": [
+            {
+                "nombre": pr.concepto,
+                "monto_total": pr.monto_total,
+                "recaudado": pr.total_recaudado,
+                "falta": 0.0,
+                "avance": 0,
+                "cancelado": True,
+                "motivo": pr.cancelado_motivo or "",
+            }
+            for pr in conjunto.proyectos
+            if pr.cancelado
+            and pr.cancelado_en
+            and pr.cancelado_en.date() >= primer_dia
+            and pr.cancelado_en.date() <= ultimo_dia
+        ],
     }
 
 
