@@ -1,25 +1,25 @@
+{# `recibo` es un pago completo: puede tener una sola partida o varias
+   (un depósito que cubrió mantenimiento, gas, un proyecto…). #}
 <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
-  <h2 style="color:#1d4ed8;">Comprobante de pago</h2>
+  <h2 style="color:#176BA0;">Comprobante de pago</h2>
   <p>Se registró un pago en <strong>{{ conjunto.nombre }}</strong>.</p>
   <table style="width:100%; border-collapse: collapse; font-size: 14px;">
-    <tr><td style="padding:6px 0; color:#666;">Folio</td><td style="padding:6px 0;"><strong>{{ pago.folio }}</strong></td></tr>
-    <tr><td style="padding:6px 0; color:#666;">Propiedad</td><td style="padding:6px 0;">{{ pago.propiedad.etiqueta }}</td></tr>
-    {% if pago.propiedad.nombre_dueno %}
-    <tr><td style="padding:6px 0; color:#666;">Propietario</td><td style="padding:6px 0;">{{ pago.propiedad.nombre_dueno }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Folio</td><td style="padding:6px 0;"><strong>{{ recibo.folio }}</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Propiedad</td><td style="padding:6px 0;">{{ recibo.propiedad.etiqueta }}</td></tr>
+    {% if recibo.propiedad.nombre_dueno %}
+    <tr><td style="padding:6px 0; color:#666;">Propietario</td><td style="padding:6px 0;">{{ recibo.propiedad.nombre_dueno }}</td></tr>
     {% endif %}
-    <tr><td style="padding:6px 0; color:#666;">Fecha</td><td style="padding:6px 0;">{{ pago.fecha_recepcion.strftime('%d/%m/%Y') }}</td></tr>
-    <tr><td style="padding:6px 0; color:#666;">Concepto</td><td style="padding:6px 0;">{{ pago.concepto_legible }}</td></tr>
-    {% if pago.concepto == 'proyecto' and pago.proyecto %}
-    <tr><td style="padding:6px 0; color:#666;">Proyecto</td><td style="padding:6px 0;">{{ pago.proyecto.concepto }}</td></tr>
-    {% endif %}
-    <tr><td style="padding:6px 0; color:#666;">Método de pago</td><td style="padding:6px 0;">{{ pago.metodo_pago_legible }}</td></tr>
-    {% if pago.incluye_recargo_tardio and pago.monto_base_snapshot and pago.monto > pago.monto_base_snapshot + 0.005 %}
-    <tr><td style="padding:6px 0; color:#666;">Mantenimiento</td><td style="padding:6px 0;">${{ '%.2f'|format(pago.monto_base_snapshot) }}</td></tr>
-    <tr><td style="padding:6px 0; color:#666;">Monto por pago posterior al día límite</td><td style="padding:6px 0;">${{ '%.2f'|format(pago.monto - pago.monto_base_snapshot) }}</td></tr>
-    <tr><td style="padding:6px 0; color:#666;"><strong>Total</strong></td><td style="padding:6px 0;"><strong>${{ '%.2f'|format(pago.monto) }} MXN</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Fecha</td><td style="padding:6px 0;">{{ recibo.fecha_recepcion.strftime('%d/%m/%Y') }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Método de pago</td><td style="padding:6px 0;">{{ recibo.metodo_pago_legible }}</td></tr>
+    {% for p in recibo.partidas %}
+    {% if p.incluye_recargo_tardio and p.monto_base_snapshot and p.monto > p.monto_base_snapshot + 0.005 %}
+    <tr><td style="padding:6px 0; color:#666;">{{ p.concepto_legible }}</td><td style="padding:6px 0;">{{ p.monto_base_snapshot|dinero }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Monto por pago posterior al día límite</td><td style="padding:6px 0;">{{ (p.monto - p.monto_base_snapshot)|dinero }}</td></tr>
     {% else %}
-    <tr><td style="padding:6px 0; color:#666;">Monto</td><td style="padding:6px 0;"><strong>${{ '%.2f'|format(pago.monto) }} MXN</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">{{ p.concepto_legible }}</td><td style="padding:6px 0;">{{ p.monto|dinero }}</td></tr>
     {% endif %}
+    {% endfor %}
+    <tr><td style="padding:6px 0; color:#666; border-top:1px solid #ddd;"><strong>Total</strong></td><td style="padding:6px 0; border-top:1px solid #ddd;"><strong>{{ recibo.total|dinero }} MXN</strong></td></tr>
   </table>
-  <p style="margin-top:16px; color:#666; font-size:12px;">El comprobante en imagen va adjunto a este correo.</p>
+  <p style="margin-top:16px; color:#666; font-size:12px;">El comprobante va adjunto a este correo, en PDF y en imagen.</p>
 </div>

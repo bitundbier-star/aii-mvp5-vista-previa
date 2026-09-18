@@ -18,7 +18,7 @@ from passlib.hash import bcrypt
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from .database import Base, engine, get_db, DATA_DIR
+from .database import Base, engine, get_db, DATA_DIR, asegurar_columnas_nuevas
 from . import models
 from .models import (
     TIPOS_PROPIEDAD,
@@ -29,7 +29,12 @@ from .models import (
     METODOS_PAGO_DICT,
 )
 from .services.cartera import estado_conjunto, estado_propiedad, orden_natural
-from .services.comprobante import comprobante_para_adjuntar, comprobante_png
+from .services.comprobante import (
+    comprobante_para_adjuntar,
+    comprobante_pdf,
+    comprobante_pdf_para_adjuntar,
+    comprobante_png,
+)
 from .services.email import enviar_correo, modo_real_configurado
 from .services.exportar import exportar_conjunto
 from .services.plantilla_propiedades import (
@@ -46,10 +51,12 @@ from .services.reportes import (
     saldo_acumulado,
 )
 from .services.imagen_reporte import generar_imagen_reporte, periodo_en_espanol
+from .services.pdf_reporte import generar_pdf_reporte, nombre_archivo_pdf
 from .services.pagos_stripe import iniciar_actualizacion_metodo_pago
 from .demo import MODO_DEMO, DEMO_EMAIL, DEMO_PASSWORD, DEMO_NOMBRE, sembrar_si_hace_falta
 
 Base.metadata.create_all(bind=engine)
+asegurar_columnas_nuevas()
 
 # En modo demostración, si la base amaneció vacía (el disco de Render es
 # temporal) se vuelve a crear el conjunto de ejemplo. Así el borrado es
@@ -122,6 +129,25 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 templates.env.filters["dinero"] = dinero
 templates.env.globals["estado_saldo"] = estado_saldo
 templates.env.globals["modo_demo"] = MODO_DEMO
+
+
+def _version_estaticos() -> str:
+    """Huella de los estilos y el logo. Va pegada a sus URLs (?v=...) para que
+    cada despliegue que los cambie obligue al navegador a bajar la versión
+    nueva — si no, el celular se queda con la hoja de estilos vieja guardada
+    y un arreglo ya publicado parece no haberse aplicado."""
+    import hashlib
+
+    h = hashlib.md5()
+    for rel in ("css/style.css", "img/logo.png", "img/favicon.png"):
+        ruta = os.path.join(BASE_DIR, "static", rel)
+        if os.path.exists(ruta):
+            with open(ruta, "rb") as f:
+                h.update(f.read())
+    return h.hexdigest()[:10]
+
+
+templates.env.globals["v_static"] = _version_estaticos()
 
 EGRESOS_DIR = os.path.join(BASE_DIR, "static", "egresos")
 os.makedirs(EGRESOS_DIR, exist_ok=True)
@@ -675,6 +701,59 @@ def propiedades_importar_confirmar(
 # Pagos (ingresos) + comprobante
 # ---------------------------------------------------------------------------
 
+def _agrupar_recibos(pagos) -> list[dict]:
+    """Junta las partidas de un mismo recibo (un depósito que cubrió varios
+    conceptos) en un solo renglón. Los pagos viejos, de un solo concepto,
+    quedan como recibos de una sola partida."""
+    recibos = {}
+    orden = []
+    for p in pagos:
+        clave = p.folio_recibo
+        if clave not in recibos:
+            recibos[clave] = []
+            orden.append(clave)
+        recibos[clave].append(p)
+    resultado = []
+    for clave in orden:
+        partidas = sorted(recibos[clave], key=lambda x: x.id)
+        resultado.append(_recibo_desde_partidas(clave, partidas))
+    return resultado
+
+
+def _recibo_desde_partidas(folio: str, partidas: list) -> dict:
+    primera = partidas[0]
+    return {
+        "folio": folio,
+        "partidas": partidas,
+        "primera": primera,
+        "propiedad": primera.propiedad,
+        "fecha_recepcion": primera.fecha_recepcion,
+        "metodo_pago_legible": primera.metodo_pago_legible,
+        "total": round(sum(p.monto for p in partidas), 2),
+        "cancelado": all(p.cancelado for p in partidas),
+        "cancelado_en": primera.cancelado_en,
+        "puede_cancelarse": all(p.puede_cancelarse for p in partidas),
+        "varias": len(partidas) > 1,
+    }
+
+
+def _partidas_de_recibo(db: Session, conjunto, folio: str) -> list:
+    """Todas las partidas del recibo al que pertenece `folio` (sirve tanto
+    el folio del recibo como el de una de sus partidas: folio-2, folio-3…)."""
+    pago = db.query(models.Pago).filter_by(folio=folio, conjunto_id=conjunto.id).first()
+    if not pago:
+        return []
+    clave = pago.folio_recibo
+    partidas = (
+        db.query(models.Pago)
+        .filter(models.Pago.conjunto_id == conjunto.id)
+        .filter((models.Pago.recibo == clave) | (models.Pago.folio == clave))
+        .order_by(models.Pago.id)
+        .all()
+    )
+    return partidas
+
+
 @app.get("/pagos", response_class=HTMLResponse)
 def pagos_lista(
     request: Request,
@@ -691,6 +770,8 @@ def pagos_lista(
         return RedirectResponse("/login", status_code=302)
 
     pagos = sorted(conjunto.pagos, key=lambda p: (p.fecha_recepcion, p.id), reverse=True)
+    recibos = _agrupar_recibos(pagos)
+    total_recibos = len(recibos)
 
     # Vista por defecto: los últimos 4 meses. No es un corte de acceso — el
     # historial completo sigue ahí y se ve con "Ver todo el historial".
@@ -700,19 +781,22 @@ def pagos_lista(
         desde_efectivo = restar_meses(dt.date.today(), MESES_VISTA_PAGOS - 1).isoformat()
 
     # Todos los filtros son combinables entre sí: se aplican uno tras otro.
+    # Un recibo con varias partidas aparece si CUALQUIERA de sus partidas
+    # coincide (p. ej. al filtrar por Gas sale el depósito de mantenimiento
+    # + gas), y se muestra completo.
     if folio.strip():
         aguja = folio.strip().lower()
-        pagos = [p for p in pagos if aguja in p.folio.lower()]
+        recibos = [r for r in recibos if aguja in r["folio"].lower()]
     if propiedad_id:
-        pagos = [p for p in pagos if str(p.propiedad_id) == propiedad_id]
+        recibos = [r for r in recibos if str(r["propiedad"].id) == propiedad_id]
     if concepto:
-        pagos = [p for p in pagos if p.concepto == concepto]
+        recibos = [r for r in recibos if any(p.concepto == concepto for p in r["partidas"])]
     if desde_efectivo:
         limite = dt.date.fromisoformat(desde_efectivo)
-        pagos = [p for p in pagos if p.fecha_recepcion >= limite]
+        recibos = [r for r in recibos if r["fecha_recepcion"] >= limite]
     if hasta:
         limite = dt.date.fromisoformat(hasta)
-        pagos = [p for p in pagos if p.fecha_recepcion <= limite]
+        recibos = [r for r in recibos if r["fecha_recepcion"] <= limite]
 
     filtros_activos = bool(folio.strip() or propiedad_id or concepto or desde or hasta)
 
@@ -720,7 +804,7 @@ def pagos_lista(
         request,
         "pagos.html",
         conjunto=conjunto,
-        pagos=pagos,
+        recibos=recibos,
         propiedades=sorted(conjunto.propiedades, key=orden_natural),
         conceptos=CONCEPTOS_PAGO,
         filtros={
@@ -733,16 +817,13 @@ def pagos_lista(
         filtros_activos=filtros_activos,
         ver_todo=ver_todo,
         meses_vista=MESES_VISTA_PAGOS,
-        total_pagos=len(conjunto.pagos),
+        total_pagos=total_recibos,
         error=request.query_params.get("error"),
         cancelado=request.query_params.get("cancelado"),
     )
 
 
-@app.get("/pagos/nuevo", response_class=HTMLResponse)
-def pago_nuevo_form(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
-    if not conjunto:
-        return RedirectResponse("/login", status_code=302)
+def _contexto_pago_nuevo(request, conjunto, error=None, previo=None):
     return tpl(
         request,
         "pago_nuevo.html",
@@ -752,25 +833,46 @@ def pago_nuevo_form(request: Request, conjunto=Depends(requerir_login), db: Sess
         conceptos=CONCEPTOS_PAGO,
         metodos=METODOS_PAGO,
         hoy=dt.date.today().isoformat(),
-        error=None,
+        error=error,
+        previo=previo or {},
     )
+
+
+@app.get("/pagos/nuevo", response_class=HTMLResponse)
+def pago_nuevo_form(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return _contexto_pago_nuevo(request, conjunto)
 
 
 @app.get("/pagos/monto-sugerido/{propiedad_id}")
 def pago_monto_sugerido(
     propiedad_id: int, conjunto=Depends(requerir_login), db: Session = Depends(get_db)
 ):
-    """Lo que esa propiedad debe hoy (mantenimiento + proyectos, ya con el
-    monto por pago posterior al día límite si aplica). Alimenta el botón
-    "Usar lo que debe hoy" del formulario de pago — no es la cuota fija, es
-    el adeudo real de hoy, que es lo que de verdad se necesita para saldar."""
+    """Lo que esa propiedad debe hoy, separado en mantenimiento y en cada
+    proyecto (ya con el monto por pago posterior al día límite si aplica).
+    Alimenta el botón "Usar lo que debe hoy" del formulario de pago — no es
+    la cuota fija, es el adeudo real de hoy, que es lo que de verdad se
+    necesita para saldar."""
     if not conjunto:
-        return {"monto": 0.0}
+        return {"monto": 0.0, "mantenimiento": 0.0, "proyectos": []}
     propiedad = db.query(models.Propiedad).filter_by(id=propiedad_id, conjunto_id=conjunto.id).first()
     if not propiedad:
-        return {"monto": 0.0}
+        return {"monto": 0.0, "mantenimiento": 0.0, "proyectos": []}
     estado = estado_propiedad(propiedad)
-    return {"monto": max(round(estado["saldo"], 2), 0.0)}
+    total = max(round(estado["saldo"], 2), 0.0)
+    en_curso = {p.id for p in conjunto.proyectos if p.en_curso}
+    proyectos = [
+        {"proyecto_id": d["proyecto_id"], "nombre": d["nombre"], "pendiente": d["saldo"]}
+        for d in estado["detalle_proyectos"]
+        if d["saldo"] > 0.005 and d["proyecto_id"] in en_curso
+    ]
+    # Si hay saldo a favor que no alcanzó a aplicarse, lo que debe en total
+    # puede ser menos que la suma de lo pendiente: nunca se sugiere más.
+    if sum(d["pendiente"] for d in proyectos) > total:
+        proyectos = []
+    mantenimiento = round(max(total - sum(d["pendiente"] for d in proyectos), 0.0), 2)
+    return {"monto": total, "mantenimiento": mantenimiento, "proyectos": proyectos}
 
 
 @app.post("/pagos/nuevo")
@@ -778,9 +880,9 @@ def pago_nuevo_submit(
     request: Request,
     propiedad_id: int = Form(...),
     fecha_recepcion: str = Form(...),
-    monto: float = Form(...),
-    concepto: str = Form(...),
-    proyecto_id: str = Form(""),
+    concepto: list[str] = Form(...),
+    monto: list[str] = Form(...),
+    proyecto_id: list[str] = Form([]),
     metodo_pago: str = Form(...),
     correo_destino: str = Form(""),
     conjunto=Depends(requerir_login),
@@ -793,54 +895,89 @@ def pago_nuevo_submit(
     if not propiedad:
         return RedirectResponse("/pagos/nuevo", status_code=302)
 
-    if concepto not in CONCEPTOS_PAGO_DICT:
-        concepto = "otros"
     if metodo_pago not in METODOS_PAGO_DICT:
         metodo_pago = "otro"
-
-    # El proyecto solo tiene sentido cuando el concepto es "Proyecto".
-    proyecto_ref = None
-    if concepto == "proyecto" and proyecto_id:
-        proyecto_ref = (
-            db.query(models.Proyecto).filter_by(id=int(proyecto_id), conjunto_id=conjunto.id).first()
-        )
-
-    folio = conjunto.siguiente_folio()
     fecha_pago = dt.datetime.strptime(fecha_recepcion, "%Y-%m-%d").date()
 
-    # Si el mantenimiento de este conjunto ya está en zona de pago tardío hoy
-    # (el mes en curso ya pasó su fecha límite), el comprobante lo explica.
-    # Es un snapshot para mostrarlo — la cartera siempre se calcula en vivo,
-    # esto no la afecta.
-    incluye_recargo = bool(
-        concepto == "mantenimiento"
-        and conjunto.aplica_recargo_tardio
-        and conjunto.monto_mensual_tardio
-        and conjunto.cargo_del_mes_es_exigible(fecha_pago.year, fecha_pago.month, fecha_pago)
-    )
-    monto_base = conjunto.monto_vigente_en(fecha_pago) if incluye_recargo else None
+    previo = {
+        "propiedad_id": propiedad_id,
+        "fecha_recepcion": fecha_recepcion,
+        "metodo_pago": metodo_pago,
+        "correo_destino": correo_destino,
+        "partidas": [],
+    }
 
-    pago = models.Pago(
-        conjunto_id=conjunto.id,
-        propiedad_id=propiedad.id,
-        proyecto_id=proyecto_ref.id if proyecto_ref else None,
-        folio=folio,
-        fecha_recepcion=fecha_pago,
-        monto=monto,
-        concepto=concepto,
-        metodo_pago=metodo_pago,
-        incluye_recargo_tardio=incluye_recargo,
-        monto_base_snapshot=monto_base,
-    )
-    db.add(pago)
+    # Cada renglón del formulario es una partida: concepto + monto (+ el
+    # proyecto, si el concepto es Proyecto). Los renglones vacíos se ignoran.
+    proyectos_ids = list(proyecto_id) + [""] * (len(concepto) - len(proyecto_id))
+    partidas = []
+    error = None
+    for i, (c, m) in enumerate(zip(concepto, monto)):
+        pid = proyectos_ids[i] if i < len(proyectos_ids) else ""
+        previo["partidas"].append({"concepto": c, "monto": m, "proyecto_id": pid})
+        try:
+            valor = round(float((m or "").replace(",", "").strip() or 0), 2)
+        except ValueError:
+            error = "Uno de los montos no es un número válido."
+            continue
+        if valor <= 0:
+            continue
+        if c not in CONCEPTOS_PAGO_DICT:
+            c = "otros"
+        proyecto_ref = None
+        if c == "proyecto":
+            if pid:
+                proyecto_ref = (
+                    db.query(models.Proyecto).filter_by(id=int(pid), conjunto_id=conjunto.id).first()
+                )
+            if not proyecto_ref:
+                error = "Elige a qué proyecto corresponde el monto de «Proyecto»."
+                continue
+        partidas.append((c, valor, proyecto_ref))
+
+    if not error and not partidas:
+        error = "Escribe el monto recibido de al menos un concepto."
+    if error:
+        return _contexto_pago_nuevo(request, conjunto, error=error, previo=previo)
+
+    folio = conjunto.siguiente_folio()
+
+    creadas = []
+    for n, (c, valor, proyecto_ref) in enumerate(partidas, start=1):
+        # Si el mantenimiento de este conjunto ya está en zona de pago tardío
+        # (el mes ya pasó su fecha límite), el comprobante lo explica. Es un
+        # snapshot para mostrarlo — la cartera siempre se calcula en vivo,
+        # esto no la afecta.
+        incluye_recargo = bool(
+            c == "mantenimiento"
+            and conjunto.aplica_recargo_tardio
+            and conjunto.monto_mensual_tardio
+            and conjunto.cargo_del_mes_es_exigible(fecha_pago.year, fecha_pago.month, fecha_pago)
+        )
+        monto_base = conjunto.monto_vigente_en(fecha_pago) if incluye_recargo else None
+        pago = models.Pago(
+            conjunto_id=conjunto.id,
+            propiedad_id=propiedad.id,
+            proyecto_id=proyecto_ref.id if proyecto_ref else None,
+            folio=folio if n == 1 else f"{folio}-{n}",
+            recibo=folio,
+            fecha_recepcion=fecha_pago,
+            monto=valor,
+            concepto=c,
+            metodo_pago=metodo_pago,
+            incluye_recargo_tardio=incluye_recargo,
+            monto_base_snapshot=monto_base,
+        )
+        db.add(pago)
+        creadas.append(pago)
     db.commit()
-    db.refresh(pago)
+    for p in creadas:
+        db.refresh(p)
 
-    # El comprobante se dibuja al vuelo. Solo se escribe un archivo temporal
-    # para poder adjuntarlo al correo; no se guarda entre los archivos de la
-    # aplicación porque ese disco es temporal y los comprobantes guardados
-    # desaparecían en cada despliegue, dejando los enlaces rotos.
-    ruta_absoluta = comprobante_para_adjuntar(pago)
+    # El comprobante se dibuja al vuelo. Solo se escriben archivos temporales
+    # para poder adjuntarlos al correo.
+    adjuntos = [comprobante_pdf_para_adjuntar(creadas), comprobante_para_adjuntar(creadas)]
+    recibo = _recibo_desde_partidas(folio, creadas)
 
     # El comprobante siempre se manda al correo de la cuenta, sin que el
     # administrador tenga que acordarse.
@@ -848,19 +985,19 @@ def pago_nuevo_submit(
         conjunto,
         f"Comprobante de pago - {conjunto.nombre} - Folio {folio}",
         "correo_comprobante.html",
-        adjuntos=[ruta_absoluta],
-        pago=pago,
+        adjuntos=adjuntos,
+        recibo=recibo,
     )
 
     # Mandárselo también al vecino que pagó es opcional.
     destino = correo_destino.strip()
     if destino:
-        cuerpo = templates.get_template("correo_comprobante.html").render(pago=pago, conjunto=conjunto)
+        cuerpo = templates.get_template("correo_comprobante.html").render(recibo=recibo, conjunto=conjunto)
         enviar_correo(
             destino,
             f"Comprobante de pago - {conjunto.nombre} - Folio {folio}",
             cuerpo,
-            [ruta_absoluta],
+            adjuntos,
         )
 
     return RedirectResponse(
@@ -877,32 +1014,92 @@ def comprobante_imagen(folio: str, conjunto=Depends(requerir_login), db: Session
     """
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
-    pago = db.query(models.Pago).filter_by(folio=folio, conjunto_id=conjunto.id).first()
-    if not pago:
+    partidas = _partidas_de_recibo(db, conjunto, folio)
+    if not partidas:
         return RedirectResponse("/pagos", status_code=302)
     return Response(
-        content=comprobante_png(pago),
+        content=comprobante_png(partidas),
         media_type="image/png",
-        headers={"Content-Disposition": f'inline; filename="{folio}.png"'},
+        headers={"Content-Disposition": f'inline; filename="Comprobante {partidas[0].folio_recibo}.png"'},
     )
+
+
+@app.get("/comprobantes/{folio}/pdf")
+def comprobante_pdf_descarga(folio: str, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    partidas = _partidas_de_recibo(db, conjunto, folio)
+    if not partidas:
+        return RedirectResponse("/pagos", status_code=302)
+    return Response(
+        content=comprobante_pdf(partidas),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="Comprobante {partidas[0].folio_recibo}.pdf"'},
+    )
+
+
+def _correos_sugeridos(propiedad) -> list[dict]:
+    sugeridos = []
+    if propiedad.email_dueno:
+        sugeridos.append({"correo": propiedad.email_dueno, "quien": propiedad.nombre_dueno or "Propietario"})
+    if propiedad.email_residente and propiedad.email_residente != propiedad.email_dueno:
+        sugeridos.append({"correo": propiedad.email_residente, "quien": propiedad.nombre_residente or "Residente"})
+    return sugeridos
 
 
 @app.get("/comprobantes/{folio}", response_class=HTMLResponse)
 def ver_comprobante(folio: str, request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
-    pago = db.query(models.Pago).filter_by(folio=folio, conjunto_id=conjunto.id).first()
-    if not pago:
+    partidas = _partidas_de_recibo(db, conjunto, folio)
+    if not partidas:
         return RedirectResponse("/pagos", status_code=302)
+    recibo = _recibo_desde_partidas(partidas[0].folio_recibo, partidas)
     return tpl(
         request,
         "comprobante.html",
         conjunto=conjunto,
-        pago=pago,
+        recibo=recibo,
+        correos_sugeridos=_correos_sugeridos(recibo["propiedad"]),
         smtp_real=modo_real_configurado(),
         enviado_al_vecino=request.query_params.get("vecino") == "1",
         error=request.query_params.get("error"),
         cancelado=request.query_params.get("cancelado"),
+        enviado_a=request.query_params.get("enviado_a"),
+    )
+
+
+@app.post("/comprobantes/{folio}/enviar")
+def comprobante_enviar(
+    folio: str,
+    correo: str = Form(""),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Manda el comprobante (PDF + imagen) al correo que se escriba. Es la
+    forma de enviarlo directo desde la computadora."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    partidas = _partidas_de_recibo(db, conjunto, folio)
+    if not partidas:
+        return RedirectResponse("/pagos", status_code=302)
+    folio_recibo = partidas[0].folio_recibo
+    destino = correo.strip()
+    if not _parece_correo(destino):
+        return RedirectResponse(
+            f"/comprobantes/{folio_recibo}?error={urllib.parse.quote('Ese correo no parece válido. Revísalo e intenta de nuevo.')}",
+            status_code=302,
+        )
+    recibo = _recibo_desde_partidas(folio_recibo, partidas)
+    cuerpo = templates.get_template("correo_comprobante.html").render(recibo=recibo, conjunto=conjunto)
+    enviar_correo(
+        destino,
+        f"Comprobante de pago - {conjunto.nombre} - Folio {folio_recibo}",
+        cuerpo,
+        [comprobante_pdf_para_adjuntar(partidas), comprobante_para_adjuntar(partidas)],
+    )
+    return RedirectResponse(
+        f"/comprobantes/{folio_recibo}?enviado_a={urllib.parse.quote(destino)}", status_code=302
     )
 
 
@@ -918,6 +1115,10 @@ def pago_cancelar(
     cartera, como si nunca hubiera entrado ese dinero. Solo se puede hacer
     dentro de las primeras 48 horas de haberlo registrado — pasado ese
     tiempo, ya no se puede deshacer desde aquí.
+
+    Si el pago es un recibo con varias partidas, se cancela el recibo
+    completo: fue un solo depósito, y cancelar solo una parte dejaría un
+    comprobante que ya no coincide con lo que se entregó.
     """
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
@@ -926,18 +1127,21 @@ def pago_cancelar(
     if not pago:
         return RedirectResponse("/pagos", status_code=302)
 
-    destino = f"/comprobantes/{pago.folio}" if volver == "comprobante" else "/pagos"
+    partidas = _partidas_de_recibo(db, conjunto, pago.folio)
+    destino = f"/comprobantes/{pago.folio_recibo}" if volver == "comprobante" else "/pagos"
 
-    if not pago.puede_cancelarse:
+    if not all(p.puede_cancelarse for p in partidas):
         mensaje = (
             "Este pago ya está cancelado."
-            if pago.cancelado
+            if all(p.cancelado for p in partidas)
             else "Ya pasaron más de 48 horas desde que se registró este pago, así que ya no se puede cancelar desde aquí."
         )
         return RedirectResponse(f"{destino}?error={urllib.parse.quote(mensaje)}", status_code=302)
 
-    pago.cancelado = True
-    pago.cancelado_en = dt.datetime.utcnow()
+    momento = dt.datetime.utcnow()
+    for p in partidas:
+        p.cancelado = True
+        p.cancelado_en = momento
     db.commit()
 
     return RedirectResponse(f"{destino}?cancelado=1", status_code=302)
@@ -1064,10 +1268,77 @@ def proyecto_eliminar(
 # Egresos
 # ---------------------------------------------------------------------------
 
-@app.get("/egresos", response_class=HTMLResponse)
-def egresos_lista(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
-    if not conjunto:
-        return RedirectResponse("/login", status_code=302)
+# Los archivos de los egresos (recibo, XML, comprobante de pago) NO viven en
+# static/: todo lo que está ahí se puede abrir sin iniciar sesión con solo
+# adivinar la dirección. Se guardan aparte y se sirven por una ruta que
+# revisa que el egreso sea del conjunto de quien lo pide.
+ARCHIVOS_EGRESOS_DIR = os.path.join(DATA_DIR, "archivos_egresos")
+os.makedirs(ARCHIVOS_EGRESOS_DIR, exist_ok=True)
+
+TAMANO_MAXIMO_ARCHIVO = 10 * 1024 * 1024  # 10 MB por archivo
+
+# Qué se acepta en cada campo. La extensión manda (es lo que ve el usuario);
+# si un celular no manda extensión, se deduce del tipo de contenido.
+EXT_IMAGEN_PDF = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif"}
+EXT_XML = {".xml"}
+TIPO_A_EXT = {
+    "application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+    "image/heic": ".heic", "image/heif": ".heif", "image/gif": ".gif",
+    "text/xml": ".xml", "application/xml": ".xml",
+}
+CAMPOS_ARCHIVO_EGRESO = {
+    "recibo": ("recibo_path", EXT_IMAGEN_PDF, "el recibo o factura"),
+    "xml": ("xml_path", EXT_XML, "el XML de la factura"),
+    "comprobante": ("comprobante_path", EXT_IMAGEN_PDF, "el comprobante de pago"),
+}
+
+
+def _archivo_subido(archivo) -> bool:
+    return archivo is not None and bool(getattr(archivo, "filename", ""))
+
+
+def _validar_archivo_egreso(archivo, campo: str) -> str | None:
+    """Devuelve un mensaje de error si el archivo no sirve, o None si está bien."""
+    _, extensiones, nombre = CAMPOS_ARCHIVO_EGRESO[campo]
+    ext = os.path.splitext(archivo.filename)[1].lower() or TIPO_A_EXT.get(archivo.content_type or "", "")
+    if ext not in extensiones:
+        if campo == "xml":
+            return f"En {nombre} solo se acepta un archivo .xml."
+        return f"En {nombre} solo se aceptan imágenes (foto o captura) o PDF."
+    archivo.file.seek(0, os.SEEK_END)
+    tamano = archivo.file.tell()
+    archivo.file.seek(0)
+    if tamano > TAMANO_MAXIMO_ARCHIVO:
+        return f"El archivo de {nombre} pesa más de 10 MB. Prueba con una foto más ligera o un PDF comprimido."
+    return None
+
+
+def _guardar_archivo_egreso(archivo, conjunto_id: int, campo: str) -> str:
+    ext = os.path.splitext(archivo.filename)[1].lower() or TIPO_A_EXT.get(archivo.content_type or "", "")
+    nombre = f"{conjunto_id}_{campo}_{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(ARCHIVOS_EGRESOS_DIR, nombre), "wb") as f:
+        shutil.copyfileobj(archivo.file, f)
+    return nombre
+
+
+def _ruta_archivo_egreso(ruta_guardada: str | None) -> str | None:
+    """Ruta en disco de un archivo de egreso. Los comprobantes subidos antes
+    de esta versión quedaron en static/egresos/ y se siguen encontrando."""
+    if not ruta_guardada:
+        return None
+    if ruta_guardada.startswith("egresos/"):
+        ruta = os.path.join(BASE_DIR, "static", ruta_guardada)
+    else:
+        ruta = os.path.join(ARCHIVOS_EGRESOS_DIR, os.path.basename(ruta_guardada))
+    return ruta if os.path.exists(ruta) else None
+
+
+def _adjuntos_de_egreso(egreso) -> list[str]:
+    rutas = [_ruta_archivo_egreso(getattr(egreso, c)) for c in ("recibo_path", "xml_path", "comprobante_path")]
+    return [r for r in rutas if r]
+
+
+def _contexto_egresos(request, conjunto, **extra):
     egresos = sorted(conjunto.egresos, key=lambda e: (e.fecha, e.id), reverse=True)
     hoy = dt.date.today()
     inicio_mes = hoy.replace(day=1)
@@ -1079,12 +1350,11 @@ def egresos_lista(request: Request, conjunto=Depends(requerir_login), db: Sessio
     for e in sorted(conjunto.egresos, key=lambda e: (e.fecha, e.id)):
         ultimo_monto_por_concepto[e.concepto] = e.monto
 
-    return tpl(
-        request,
-        "egresos.html",
+    contexto = dict(
         conjunto=conjunto,
         egresos=egresos,
         hoy=hoy.isoformat(),
+        formas_pago=models.FORMAS_PAGO_EGRESO,
         conceptos_previos=sorted(ultimo_monto_por_concepto.keys()),
         montos_por_concepto=ultimo_monto_por_concepto,
         # El número grande de esta pantalla es lo que ha salido este mes, que
@@ -1095,7 +1365,44 @@ def egresos_lista(request: Request, conjunto=Depends(requerir_login), db: Sessio
         ),
         saldo_acumulado=saldo_acumulado(conjunto, hoy),
         editar_id=request.query_params.get("editar"),
+        error=None,
+        error_editar=None,
+        previo={},
+        abrir_formulario=False,
     )
+    contexto.update(extra)
+    return tpl(request, "egresos.html", **contexto)
+
+
+@app.get("/egresos", response_class=HTMLResponse)
+def egresos_lista(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return _contexto_egresos(request, conjunto)
+
+
+@app.get("/egresos/{egreso_id}/archivo/{campo}")
+def egreso_archivo(
+    egreso_id: int, campo: str, conjunto=Depends(requerir_login), db: Session = Depends(get_db)
+):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    egreso = db.query(models.Egreso).filter_by(id=egreso_id, conjunto_id=conjunto.id).first()
+    if not egreso or campo not in CAMPOS_ARCHIVO_EGRESO:
+        return RedirectResponse("/egresos", status_code=302)
+    ruta = _ruta_archivo_egreso(getattr(egreso, CAMPOS_ARCHIVO_EGRESO[campo][0]))
+    if not ruta:
+        return HTMLResponse(
+            "<p style='font-family:sans-serif'>Este archivo ya no está disponible en el servidor.</p>",
+            status_code=404,
+        )
+    from fastapi.responses import FileResponse
+
+    import mimetypes
+
+    tipo = mimetypes.guess_type(ruta)[0] or "application/octet-stream"
+    nombre = f"{campo} - {egreso.concepto[:40]}{os.path.splitext(ruta)[1]}"
+    return FileResponse(ruta, media_type=tipo, filename=nombre, content_disposition_type="inline")
 
 
 @app.post("/egresos/nuevo")
@@ -1104,6 +1411,9 @@ async def egreso_nuevo(
     concepto: str = Form(...),
     monto: float = Form(...),
     fecha: str = Form(...),
+    forma_pago: str = Form(""),
+    recibo: UploadFile | None = File(None),
+    xml: UploadFile | None = File(None),
     comprobante: UploadFile | None = File(None),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
@@ -1111,32 +1421,50 @@ async def egreso_nuevo(
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
 
-    ruta_relativa = None
-    if comprobante is not None and comprobante.filename:
-        ext = os.path.splitext(comprobante.filename)[1]
-        nombre_archivo = f"{conjunto.id}_{uuid.uuid4().hex}{ext}"
-        ruta_absoluta = os.path.join(EGRESOS_DIR, nombre_archivo)
-        with open(ruta_absoluta, "wb") as f:
-            shutil.copyfileobj(comprobante.file, f)
-        ruta_relativa = f"egresos/{nombre_archivo}"
+    previo = {"concepto": concepto, "monto": monto, "fecha": fecha, "forma_pago": forma_pago}
+    archivos = {"recibo": recibo, "xml": xml, "comprobante": comprobante}
+
+    error = None
+    if forma_pago not in models.FORMAS_PAGO_EGRESO_DICT:
+        error = "Elige la forma en que se hizo el pago."
+    elif not _archivo_subido(recibo):
+        error = "Falta subir el recibo o factura (foto o PDF). Si el proveedor no dio recibo, sube la foto de una nota firmada."
+    else:
+        for campo, archivo in archivos.items():
+            if _archivo_subido(archivo):
+                error = _validar_archivo_egreso(archivo, campo)
+                if error:
+                    break
+    if error:
+        return _contexto_egresos(request, conjunto, error=error, previo=previo, abrir_formulario=True)
+
+    rutas = {
+        campo: _guardar_archivo_egreso(archivo, conjunto.id, campo)
+        for campo, archivo in archivos.items()
+        if _archivo_subido(archivo)
+    }
 
     egreso = models.Egreso(
         conjunto_id=conjunto.id,
         concepto=concepto,
         monto=monto,
         fecha=dt.datetime.strptime(fecha, "%Y-%m-%d").date(),
-        comprobante_path=ruta_relativa,
+        forma_pago=forma_pago,
+        recibo_path=rutas.get("recibo"),
+        xml_path=rutas.get("xml"),
+        comprobante_path=rutas.get("comprobante"),
     )
     db.add(egreso)
     db.commit()
     db.refresh(egreso)
 
-    # Cada egreso se avisa automáticamente al correo de la cuenta: es el
-    # control de que nadie saca dinero sin que quede registro.
+    # Cada egreso se avisa automáticamente al correo de la cuenta, con sus
+    # archivos: es el control de que nadie saca dinero sin que quede registro.
     avisar_a_la_cuenta(
         conjunto,
         f"Egreso registrado - {conjunto.nombre} - {egreso.concepto}",
         "correo_egreso.html",
+        adjuntos=_adjuntos_de_egreso(egreso),
         egreso=egreso,
         accion="registrado",
     )
@@ -1151,6 +1479,9 @@ async def egreso_editar(
     concepto: str = Form(...),
     monto: float = Form(...),
     fecha: str = Form(...),
+    forma_pago: str = Form(""),
+    recibo: UploadFile | None = File(None),
+    xml: UploadFile | None = File(None),
     comprobante: UploadFile | None = File(None),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
@@ -1162,16 +1493,27 @@ async def egreso_editar(
     if not egreso:
         return RedirectResponse("/egresos", status_code=302)
 
+    archivos = {"recibo": recibo, "xml": xml, "comprobante": comprobante}
+    error = None
+    if forma_pago and forma_pago not in models.FORMAS_PAGO_EGRESO_DICT:
+        error = "Elige la forma en que se hizo el pago."
+    for campo, archivo in archivos.items():
+        if not error and _archivo_subido(archivo):
+            error = _validar_archivo_egreso(archivo, campo)
+    if error:
+        return _contexto_egresos(request, conjunto, error_editar=error, editar_id=str(egreso_id))
+
     egreso.concepto = concepto
     egreso.monto = monto
     egreso.fecha = dt.datetime.strptime(fecha, "%Y-%m-%d").date()
+    if forma_pago:
+        egreso.forma_pago = forma_pago
 
-    if comprobante is not None and comprobante.filename:
-        ext = os.path.splitext(comprobante.filename)[1]
-        nombre_archivo = f"{conjunto.id}_{uuid.uuid4().hex}{ext}"
-        with open(os.path.join(EGRESOS_DIR, nombre_archivo), "wb") as f:
-            shutil.copyfileobj(comprobante.file, f)
-        egreso.comprobante_path = f"egresos/{nombre_archivo}"
+    # Subir un archivo aquí reemplaza al anterior de ese mismo campo; los
+    # campos que se dejan vacíos conservan lo que ya tenían.
+    for campo, archivo in archivos.items():
+        if _archivo_subido(archivo):
+            setattr(egreso, CAMPOS_ARCHIVO_EGRESO[campo][0], _guardar_archivo_egreso(archivo, conjunto.id, campo))
 
     db.commit()
     db.refresh(egreso)
@@ -1180,6 +1522,7 @@ async def egreso_editar(
         conjunto,
         f"Egreso modificado - {conjunto.nombre} - {egreso.concepto}",
         "correo_egreso.html",
+        adjuntos=_adjuntos_de_egreso(egreso),
         egreso=egreso,
         accion="modificado",
     )
@@ -1204,7 +1547,12 @@ def egreso_eliminar(
     # La caja chica se calcula en vivo (ingresos acumulados − egresos
     # acumulados), no es un total guardado aparte. Al cancelar el egreso el
     # dinero disponible sube solo: no hace falta lógica extra.
-    datos = {"concepto": egreso.concepto, "monto": egreso.monto, "fecha": egreso.fecha}
+    datos = {
+        "concepto": egreso.concepto,
+        "monto": egreso.monto,
+        "fecha": egreso.fecha,
+        "forma_pago_legible": egreso.forma_pago_legible,
+    }
     db.delete(egreso)
     db.commit()
 
@@ -1261,27 +1609,10 @@ def cartera(
 # Reporte mensual
 # ---------------------------------------------------------------------------
 
-def _mensaje_whatsapp(conjunto, reporte) -> str:
-    """Texto prellenado para compartir. Nunca se envía solo: solo abre
-    WhatsApp con el mensaje escrito para que el administrador elija a quién
-    mandárselo y adjunte la imagen."""
-    lineas = [
-        f"*{conjunto.nombre}* — Reporte de {reporte['periodo_largo']}",
-        "",
-        f"Saldo al cierre del mes: {dinero(reporte['saldo_cierre'])}",
-        f"Saldo al inicio del mes: {dinero(reporte['saldo_apertura'])}",
-        f"Ingresos del mes: {dinero(reporte['ingresos_reales'])}",
-        f"Egresos del mes: {dinero(reporte['total_egresos'])}",
-        f"Por cobrar: {dinero(reporte['cartera_total'])}",
-        f"Al corriente: {reporte['propiedades_al_corriente']} de "
-        f"{reporte['propiedades_al_corriente'] + reporte['propiedades_con_adeudo']} propiedades",
-    ]
-    if reporte["proyectos_en_curso"]:
-        lineas.append("")
-        lineas.append("*Proyectos en curso:*")
-        for p in reporte["proyectos_en_curso"]:
-            lineas.append(f"• {p['nombre']}: {dinero(p['recaudado'])} de {dinero(p['monto_total'])}")
-    return "\n".join(lineas)
+def _version_pedida(valor: str | None) -> str:
+    """Detalle por propiedad (lo de siempre) o resumen sin nombres. Se elige
+    cada vez que se genera el reporte; no se guarda como preferencia."""
+    return "resumen" if (valor or "").strip() == "resumen" else "detalle"
 
 
 def _mes_pedido(request: Request, conjunto):
@@ -1305,6 +1636,81 @@ def _mes_pedido(request: Request, conjunto):
     return (disponibles[0]["anio"], disponibles[0]["mes"]), disponibles
 
 
+# --- Destinatarios del reporte ------------------------------------------------
+
+MODOS_DESTINATARIOS = ("todos", "duenos", "seleccion")
+
+
+def _destinatarios_guardados(conjunto) -> dict:
+    import json
+
+    base = {"modo": "duenos", "seleccion": [], "extras": ""}
+    try:
+        guardado = json.loads(conjunto.reporte_destinatarios or "{}")
+    except (ValueError, TypeError):
+        guardado = {}
+    base.update({k: v for k, v in guardado.items() if k in base})
+    if base["modo"] not in MODOS_DESTINATARIOS:
+        base["modo"] = "duenos"
+    return base
+
+
+def _correos_propiedades(conjunto) -> list[dict]:
+    """Para la lista de 'uno por uno': cada propiedad con los correos que tiene
+    registrados (propietario y residente)."""
+    filas = []
+    for p in sorted(conjunto.propiedades, key=orden_natural):
+        if not p.activo:
+            continue
+        correos = []
+        if p.email_dueno:
+            correos.append({"correo": p.email_dueno.strip(), "quien": p.nombre_dueno or "Propietario", "rol": "propietario"})
+        if p.email_residente and p.email_residente.strip().lower() != (p.email_dueno or "").strip().lower():
+            correos.append({"correo": p.email_residente.strip(), "quien": p.nombre_residente or "Residente", "rol": "residente"})
+        filas.append({"propiedad": p, "correos": correos})
+    return filas
+
+
+def _resolver_destinatarios(conjunto, modo: str, seleccion: list[str], extras: str) -> list[str]:
+    correos = []
+    if modo == "todos":
+        for fila in _correos_propiedades(conjunto):
+            correos += [c["correo"] for c in fila["correos"]]
+    elif modo == "duenos":
+        for fila in _correos_propiedades(conjunto):
+            correos += [c["correo"] for c in fila["correos"] if c["rol"] == "propietario"]
+    else:
+        correos += [c.strip() for c in seleccion if c.strip()]
+    correos += [c.strip() for c in re.split(r"[,;\s]+", extras or "") if c.strip()]
+    vistos, unicos = set(), []
+    for c in correos:
+        clave = c.lower()
+        if clave not in vistos and _parece_correo(c):
+            vistos.add(clave)
+            unicos.append(c)
+    return unicos
+
+
+def _contexto_reporte(request, conjunto, reporte, version, **extra):
+    guardados = _destinatarios_guardados(conjunto)
+    filas_correos = _correos_propiedades(conjunto)
+    contexto = dict(
+        conjunto=conjunto,
+        reporte=reporte,
+        version=version,
+        sin_meses=False,
+        smtp_real=modo_real_configurado(),
+        resultado=None,
+        destinatarios=guardados,
+        filas_correos=filas_correos,
+        total_duenos=sum(1 for f in filas_correos for c in f["correos"] if c["rol"] == "propietario"),
+        total_correos=sum(len(f["correos"]) for f in filas_correos),
+        sin_correo=sum(1 for f in filas_correos if not f["correos"]),
+    )
+    contexto.update(extra)
+    return tpl(request, "reporte.html", **contexto)
+
+
 @app.get("/reporte", response_class=HTMLResponse)
 def reporte_ver(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
     if not conjunto:
@@ -1325,92 +1731,99 @@ def reporte_ver(request: Request, conjunto=Depends(requerir_login), db: Session 
             proximo_mes=proximo,
             smtp_real=modo_real_configurado(),
             resultado=None,
-            imagen=None,
-            whatsapp="",
         )
 
     reporte = datos_reporte(conjunto, pedido[0], pedido[1])
-    return tpl(
-        request,
-        "reporte.html",
-        conjunto=conjunto,
-        reporte=reporte,
-        sin_meses=False,
-        smtp_real=modo_real_configurado(),
-        resultado=None,
-        imagen=request.query_params.get("imagen"),
-        whatsapp=urllib.parse.quote(_mensaje_whatsapp(conjunto, reporte)),
-    )
+    version = _version_pedida(request.query_params.get("version"))
+    return _contexto_reporte(request, conjunto, reporte, version)
 
 
 @app.get("/reporte/imprimir", response_class=HTMLResponse)
 def reporte_imprimir(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
-    """Versión limpia del reporte, sin menús ni botones, que abre el diálogo
-    de impresión del navegador. Desde ahí se guarda como PDF. Se hizo así a
-    propósito: no agrega ninguna librería ni costo de despliegue."""
+    """Versión limpia del reporte, sin menús ni botones, para imprimirlo en
+    papel desde el navegador."""
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     pedido, _ = _mes_pedido(request, conjunto)
     if pedido is None:
         return RedirectResponse("/reporte", status_code=302)
     reporte = datos_reporte(conjunto, pedido[0], pedido[1])
-    return tpl(request, "reporte_imprimir.html", conjunto=conjunto, reporte=reporte)
+    version = _version_pedida(request.query_params.get("version"))
+    return tpl(request, "reporte_imprimir.html", conjunto=conjunto, reporte=reporte, version=version)
 
 
-@app.post("/reporte/imagen")
-def reporte_imagen(
-    request: Request,
-    anio: int = Form(None),
-    mes: int = Form(None),
-    conjunto=Depends(requerir_login),
-    db: Session = Depends(get_db),
-):
-    """Genera el reporte como imagen PNG para poder compartirla."""
+@app.get("/reporte/pdf")
+def reporte_pdf(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    """El reporte como archivo PDF: para descargarlo, compartirlo desde el
+    celular o adjuntarlo a un correo."""
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
-    disponibles = meses_disponibles(conjunto)
-    if not disponibles:
+    pedido, _ = _mes_pedido(request, conjunto)
+    if pedido is None:
         return RedirectResponse("/reporte", status_code=302)
-    if not any(d["anio"] == anio and d["mes"] == mes for d in disponibles):
-        anio, mes = disponibles[0]["anio"], disponibles[0]["mes"]
-    reporte = datos_reporte(conjunto, anio, mes)
-    ruta = generar_imagen_reporte(conjunto, reporte)
-    return RedirectResponse(
-        f"/reporte?anio={anio}&mes={mes}&imagen={urllib.parse.quote(ruta)}", status_code=302
+    reporte = datos_reporte(conjunto, pedido[0], pedido[1])
+    version = _version_pedida(request.query_params.get("version"))
+    nombre = nombre_archivo_pdf(conjunto, reporte)
+    return Response(
+        content=generar_pdf_reporte(conjunto, reporte, version),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(nombre)}"},
     )
+
+
+def _pdf_reporte_para_adjuntar(conjunto, reporte, version) -> str:
+    import tempfile
+
+    carpeta = tempfile.mkdtemp(prefix="reporte_")
+    ruta = os.path.join(carpeta, nombre_archivo_pdf(conjunto, reporte))
+    with open(ruta, "wb") as f:
+        f.write(generar_pdf_reporte(conjunto, reporte, version))
+    return ruta
 
 
 @app.post("/reporte/enviar", response_class=HTMLResponse)
 def reporte_enviar(
     request: Request,
-    destinatarios: str = Form(...),
+    modo: str = Form("duenos"),
+    seleccion: list[str] = Form([]),
+    extras: str = Form(""),
+    version: str = Form("detalle"),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
 ):
+    import json
+
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     pedido, _ = _mes_pedido(request, conjunto)
     if pedido is None:
         return RedirectResponse("/reporte", status_code=302)
     reporte = datos_reporte(conjunto, pedido[0], pedido[1])
-    cuerpo = templates.get_template("correo_reporte.html").render(conjunto=conjunto, reporte=reporte)
-    asunto = f"Reporte de {reporte['periodo']} - {conjunto.nombre}"
+    version = _version_pedida(version)
+    if modo not in MODOS_DESTINATARIOS:
+        modo = "duenos"
 
-    resultados = []
-    for destino in [d.strip() for d in destinatarios.split(",") if d.strip()]:
-        resultados.append((destino, enviar_correo(destino, asunto, cuerpo)))
-
-    return tpl(
-        request,
-        "reporte.html",
-        conjunto=conjunto,
-        reporte=reporte,
-        sin_meses=False,
-        smtp_real=modo_real_configurado(),
-        resultado=resultados,
-        imagen=None,
-        whatsapp=urllib.parse.quote(_mensaje_whatsapp(conjunto, reporte)),
+    # Se recuerda la elección para dejarla puesta el mes que entra.
+    conjunto.reporte_destinatarios = json.dumps(
+        {"modo": modo, "seleccion": [c.strip() for c in seleccion if c.strip()], "extras": extras.strip()}
     )
+    db.commit()
+
+    destinos = _resolver_destinatarios(conjunto, modo, seleccion, extras)
+    if not destinos:
+        return _contexto_reporte(
+            request, conjunto, reporte, version,
+            error_envio="No hay ningún correo al cual enviar: marca al menos uno o escribe un correo extra.",
+        )
+
+    cuerpo = templates.get_template("correo_reporte.html").render(
+        conjunto=conjunto, reporte=reporte, version=version
+    )
+    asunto = f"Reporte de {reporte['periodo']} - {conjunto.nombre}"
+    adjunto = _pdf_reporte_para_adjuntar(conjunto, reporte, version)
+
+    resultados = [(d, enviar_correo(d, asunto, cuerpo, [adjunto])) for d in destinos]
+    return _contexto_reporte(request, conjunto, reporte, version, resultado=resultados)
 
 
 def enviar_reporte_automatico_mensual():
@@ -1428,11 +1841,14 @@ def enviar_reporte_automatico_mensual():
                 continue
             anio, mes = mes_reportable()
             reporte = datos_reporte(conjunto, anio, mes)
-            cuerpo = templates.get_template("correo_reporte.html").render(conjunto=conjunto, reporte=reporte)
+            cuerpo = templates.get_template("correo_reporte.html").render(
+                conjunto=conjunto, reporte=reporte, version="detalle"
+            )
             enviar_correo(
                 conjunto.cuenta_email,
                 f"Reporte de {reporte['periodo']} - {conjunto.nombre}",
                 cuerpo,
+                [_pdf_reporte_para_adjuntar(conjunto, reporte, "detalle")],
             )
     finally:
         db.close()

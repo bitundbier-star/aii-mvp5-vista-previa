@@ -1,6 +1,12 @@
 :root {
-  --azul: #1d4ed8;
-  --azul-claro: #eef2ff;
+  /* Paleta tomada del logo. El azul del logo (#228ECE) tal cual no alcanza
+     el contraste mínimo con texto blanco encima, así que botones y enlaces
+     usan un tono más profundo de la misma familia; el del logo se reserva
+     para acentos (la línea de la pestaña activa, el borde de lo elegido). */
+  --azul: #176BA0;
+  --azul-hover: #135A87;
+  --azul-marca: #228ECE;
+  --azul-claro: #EAF4FB;
   --verde: #0a7d3c;
   --rojo: #b91c1c;
   --gris-100: #f7f7f8;
@@ -24,6 +30,20 @@ body {
   margin: 0 auto;
   padding: 20px 16px 80px;
 }
+
+/* Escritorio: se aprovecha el ancho de la pantalla para que las tablas
+   (Pagos, Cartera, Egresos, Proyectos, Configuración) no partan folios,
+   fechas ni montos en varios renglones. En celular no cambia nada. Las
+   pantallas que son solo un formulario se quedan angostas a propósito: un
+   campo de 1,200 px de ancho es más difícil de llenar, no más fácil. */
+@media (min-width: 768px) {
+  .contenedor { max-width: 1200px; padding: 24px 32px 80px; }
+  .contenedor.angosto { max-width: 760px; }
+}
+
+/* Mostrar algo solo en celular o solo en escritorio (corte en 768 px). */
+@media (min-width: 768px) { .solo-movil { display: none !important; } }
+@media (max-width: 767.98px) { .solo-escritorio { display: none !important; } }
 
 .contenedor-angosto {
   max-width: 420px;
@@ -92,7 +112,7 @@ header.topbar .marca-texto {
 }
 
 header.topbar .logo-icono {
-  height: 32px;
+  height: 38px;
   width: auto;
   display: block;
   flex: 0 0 auto;
@@ -103,6 +123,8 @@ header.topbar .marca {
   color: var(--azul);
   text-decoration: none;
   font-size: 15px;
+  line-height: 1.3;
+  display: block;
 }
 
 header.topbar .conjunto-nombre {
@@ -124,8 +146,10 @@ header.topbar .btn { flex: 0 0 auto; }
 }
 
 .logo-login {
-  height: 38px;
-  width: auto;
+  width: 100%;
+  max-width: 380px;
+  height: auto;
+  margin-bottom: 10px;
 }
 
 .etiqueta-modulo {
@@ -156,7 +180,7 @@ nav.tabs a {
 
 nav.tabs a.activo {
   color: var(--azul);
-  border-bottom-color: var(--azul);
+  border-bottom-color: var(--azul-marca);
   font-weight: 600;
 }
 
@@ -219,16 +243,21 @@ button, .btn {
   text-decoration: none;
   margin-top: 16px;
 }
+button:hover, .btn:hover { background: var(--azul-hover); }
 button.secundario, .btn.secundario { background: white; color: var(--azul); border: 1px solid var(--azul); }
-button.whatsapp, .btn.whatsapp { background: #25D366; }
-button.pequeno { padding: 6px 12px; font-size: 13px; margin-top: 0; }
+button.secundario:hover, .btn.secundario:hover { background: var(--azul-claro); }
+button.whatsapp:hover, .btn.whatsapp:hover { background: #0e7065; }
+button.whatsapp, .btn.whatsapp { background: #128C7E; }
+button.pequeno, .btn.pequeno { padding: 6px 12px; font-size: 13px; margin-top: 0; }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 9px 6px; border-bottom: 1px solid var(--gris-300); }
 th { color: var(--gris-600); font-weight: 600; font-size: 12px; text-transform: uppercase; white-space: nowrap; }
 /* Un correo o nombre largo en una celda no debe forzar la tabla entera a
    ensancharse más de lo necesario — que se parta en dos líneas primero. */
-td { word-break: break-word; }
+td { overflow-wrap: break-word; }
+/* Lo que nunca debe partirse en dos renglones: folios, fechas y montos. */
+td.num, td.nowrap, th.num { white-space: nowrap; word-break: normal; }
 
 .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .badge.ok { background: #dcfce7; color: var(--verde); }
@@ -237,7 +266,7 @@ td { word-break: break-word; }
 .badge.progreso { background: var(--azul-claro); color: var(--azul); }
 
 .aviso { background: #fff7ed; border: 1px solid #fdba74; border-radius: var(--radio); padding: 12px 14px; margin-bottom: 16px; font-size: 14px; }
-.aviso.info { background: var(--azul-claro); border-color: #93c5fd; }
+.aviso.info { background: var(--azul-claro); border-color: #A9D3EE; }
 .aviso.exito { background: #dcfce7; border-color: #86efac; }
 .error { color: var(--rojo); font-size: 14px; margin-top: 10px; }
 
@@ -297,6 +326,9 @@ td.acciones form { display: inline; }
    estos enlaces-botón terminaban con fondo rojo oscuro Y texto rojo encima
    — casi ilegible. Aquí se reafirma que este es un link de texto, no un
    botón sólido: sin fondo, con buen contraste (rojo sobre blanco). */
+/* El hover genérico de botones pinta fondo azul; un enlace-botón nunca
+   lleva fondo, ni al pasar el mouse. */
+.enlace-boton:hover { background: none; color: var(--azul-hover); }
 .enlace-boton.peligro { color: var(--rojo); background: none; font-weight: 600; }
 .enlace-boton.peligro:hover { background: none; color: #7f1410; }
 
@@ -307,8 +339,8 @@ td.acciones form { display: inline; }
 
 /* Encabezado del reporte con logo. */
 .encabezado-reporte { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
-.logo-reporte { height: 40px; }
-.logo-alta { height: 54px; }
+.logo-reporte { height: 46px; width: auto; max-width: 100%; }
+.logo-alta { width: 100%; max-width: 420px; height: auto; }
 .acciones-reporte .btn, .acciones-reporte button { margin-right: 8px; }
 
 /* Barra de avance de un proyecto. */
@@ -355,8 +387,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 13px; background: #fff; cursor: pointer; display: block;
   transition: border-color .12s, background .12s;
 }
-.saldo-opcion:hover { border-color: #93c5fd; }
-.saldo-opcion.activa { border-color: #1d4ed8; background: #eff6ff; }
+.saldo-opcion:hover { border-color: #A9D3EE; }
+.saldo-opcion.activa { border-color: var(--azul-marca); background: var(--azul-claro); }
 .saldo-opcion input[type=radio] { margin-right: 7px; }
 .saldo-opcion .monto-wrap {
   margin-top: 9px; display: flex; align-items: center; gap: 5px;
@@ -420,7 +452,7 @@ tr.fila-total td {
    Modo demostración
 --------------------------------------------------------------------------- */
 .cinta-demo {
-  background: #1d4ed8; color: #fff; padding: 10px 18px; font-size: 13.5px;
+  background: #176BA0; color: #fff; padding: 10px 18px; font-size: 13.5px;
   text-align: center; line-height: 1.5;
 }
 .cinta-demo strong { font-weight: 700; }
@@ -428,7 +460,7 @@ tr.fila-total td {
   display: inline-block; background: rgba(255,255,255,.16);
   padding: 1px 10px; border-radius: 99px; margin-left: 6px; font-weight: 600;
 }
-.tarjeta-demo { border: 2px solid #1d4ed8; background: #f5f8ff; }
+.tarjeta-demo { border: 2px solid #176BA0; background: #F3F9FD; }
 .tarjeta-demo h2 { margin-top: 0; font-size: 18px; }
 table.datos-demo { width: auto; margin: 14px 0; }
 table.datos-demo td { border: 0; padding: 4px 18px 4px 0; font-size: 14px; }
@@ -463,3 +495,64 @@ table.datos-demo code {
 .desplegable-peligro > form { margin-top: 14px; }
 button.peligro { background: #b3261e; }
 button.peligro:hover { background: #9f1c14; }
+
+/* ---------------------------------------------------------------------------
+   Ronda 5.5
+--------------------------------------------------------------------------- */
+
+/* Varios archivos (egresos): cada uno en su renglón, con su propia ayuda. */
+.archivo-campo { margin-top: 12px; }
+.archivo-campo label { margin-top: 0; }
+.archivos-lista a { margin-right: 10px; white-space: nowrap; }
+.falta-recibo { color: #9a5b00; font-size: 12px; font-weight: 600; white-space: nowrap; }
+
+/* Partidas de un pago (un depósito que cubre varios conceptos). */
+.partida {
+  display: grid; grid-template-columns: 1.1fr 1.3fr 1fr auto; gap: 10px; align-items: end;
+  padding: 12px; border: 1px solid var(--gris-300); border-radius: 8px; margin-top: 10px; background: #fcfcfd;
+}
+.partida label { margin-top: 0; }
+.partida .quitar-partida { margin: 0 0 10px; }
+/* En escritorio el hueco del proyecto se conserva aunque no aplique, para
+   que Monto y Quitar queden alineados renglón con renglón. */
+.partida .bloque-proyecto-partida[hidden] { display: block; visibility: hidden; }
+@media (max-width: 700px) { .partida .bloque-proyecto-partida[hidden] { display: none; } }
+@media (max-width: 700px) { .partida { grid-template-columns: 1fr; } .partida .quitar-partida { margin: 0; } }
+.total-partidas { margin-top: 12px; font-size: 15px; }
+.total-partidas strong { font-size: 18px; }
+.lista-partidas { margin: 0; padding: 0; list-style: none; }
+.lista-partidas li + li { margin-top: 4px; }
+.lista-partidas .ayuda { display: inline; margin-left: 4px; }
+
+/* Selector de dos o tres opciones excluyentes (versión del reporte,
+   destinatarios del correo). */
+.selector-opciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.selector-opciones label {
+  margin: 0; font-weight: 500; font-size: 14px; display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--gris-300); border-radius: 8px; padding: 9px 14px; background: #fff; cursor: pointer;
+}
+.selector-opciones label:has(input:checked) { border-color: var(--azul-marca); background: var(--azul-claro); color: var(--azul); }
+.selector-opciones input { width: auto; margin: 0; }
+
+.lista-correos { columns: 2 260px; column-gap: 24px; margin: 10px 0 0; }
+.lista-correos .prop-correos { break-inside: avoid; padding: 6px 0; border-bottom: 1px solid #f0f0f2; }
+.lista-correos .check { margin: 2px 0; font-size: 13.5px; }
+.lista-correos .check label { font-size: 13.5px; }
+.lista-correos .sin-correo { font-size: 12.5px; color: var(--gris-600); }
+
+.resumen-cartera { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 620px) { .resumen-cartera { grid-template-columns: 1fr; } }
+
+.acciones-compartir { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+.acciones-compartir .btn, .acciones-compartir button { margin: 0; }
+.envio-correo-inline { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
+.envio-correo-inline input { max-width: 320px; }
+.envio-correo-inline button { margin: 0; }
+
+/* Celular: el nombre completo de la plataforma es largo; un poco más chico
+   para que quepa en dos renglones y no se coma media pantalla. */
+@media (max-width: 767.98px) {
+  header.topbar { padding: 10px 12px; }
+  header.topbar .marca { font-size: 13px; }
+  header.topbar .logo-icono { height: 32px; }
+}

@@ -1,5 +1,21 @@
 {% extends "base.html" %}
 {% block titulo %}Egresos{% endblock %}
+{% macro campos_archivos(e=None) %}
+  <div class="archivo-campo">
+    <label>{% if e %}Reemplazar recibo o factura{% else %}Recibo o factura <span class="obligatorio">*</span>{% endif %}</label>
+    <input type="file" name="recibo" accept="image/*,application/pdf" {{ '' if e else 'required' }}>
+    <div class="ayuda">{% if e %}Déjalo vacío para conservar el que ya tiene.{% else %}Obligatorio. Foto, captura o PDF. Si el proveedor no dio recibo, sube la foto de una nota firmada por quien recibió el pago.{% endif %}</div>
+  </div>
+  <div class="archivo-campo">
+    <label>{% if e %}Reemplazar XML de la factura{% else %}XML de la factura (opcional){% endif %}</label>
+    <input type="file" name="xml" accept=".xml,text/xml,application/xml">
+  </div>
+  <div class="archivo-campo">
+    <label>{% if e %}Reemplazar comprobante de pago{% else %}Comprobante de pago (opcional){% endif %}</label>
+    <input type="file" name="comprobante" accept="image/*,application/pdf">
+    <div class="ayuda">La captura de la transferencia, el voucher de la tarjeta o la foto del cheque: la prueba de que el pago sí se hizo.</div>
+  </div>
+{% endmacro %}
 {% block contenido %}
 <h1>Egresos</h1>
 
@@ -10,69 +26,102 @@
 
 <button type="button" class="btn" onclick="alternarFormulario()">+ Registrar egreso</button>
 
-<div class="card" id="form-egreso" style="display:none; margin-top:16px;">
+<div class="card" id="form-egreso" style="{{ '' if abrir_formulario else 'display:none;' }} margin-top:16px; max-width:760px;">
   <h2 style="margin-top:0">Nuevo egreso</h2>
+  {% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
   <form method="post" action="/egresos/nuevo" enctype="multipart/form-data">
     <label>Concepto</label>
-    <input type="text" name="concepto" id="concepto-egreso" list="conceptos-previos" required placeholder="p. ej. pago a empresa de limpieza" oninput="sugerirMontoEgreso()" autocomplete="off">
+    <input type="text" name="concepto" id="concepto-egreso" list="conceptos-previos" required placeholder="p. ej. pago a empresa de limpieza" oninput="sugerirMontoEgreso()" autocomplete="off" value="{{ previo.concepto or '' }}">
     <datalist id="conceptos-previos">
       {% for c in conceptos_previos %}<option value="{{ c }}">{% endfor %}
     </datalist>
     {% if conceptos_previos %}<div class="ayuda">Empieza a escribir un gasto que ya hayas registrado antes (jardinería, limpieza, luz de áreas comunes…) y aparece en la lista con el monto de la última vez.</div>{% endif %}
-    <label>Monto</label>
-    <div class="campo-moneda">
-      <span>$</span>
-      <input type="number" step="0.01" min="0" name="monto" id="monto-egreso" required placeholder="0.00">
+    <div class="fila-campos">
+      <div>
+        <label>Monto</label>
+        <div class="campo-moneda">
+          <span>$</span>
+          <input type="number" step="0.01" min="0" name="monto" id="monto-egreso" required placeholder="0.00" value="{{ previo.monto or '' }}">
+        </div>
+      </div>
+      <div>
+        <label>Fecha</label>
+        <input type="date" name="fecha" value="{{ previo.fecha or hoy }}" required>
+      </div>
     </div>
-    <label>Fecha</label>
-    <input type="date" name="fecha" value="{{ hoy }}" required>
-    <label>Comprobante o factura (opcional)</label>
-    <input type="file" name="comprobante" accept="image/*,application/pdf">
+    <label>Forma de pago</label>
+    <select name="forma_pago" required>
+      <option value="" {{ '' if previo.forma_pago else 'selected' }} disabled>Elige cómo se pagó…</option>
+      {% for clave, etiqueta in formas_pago %}
+      <option value="{{ clave }}" {{ 'selected' if previo.forma_pago == clave else '' }}>{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+    {{ campos_archivos() }}
     <button type="submit">Registrar egreso</button>
   </form>
-  <p class="ayuda">Cada egreso se avisa automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}), para que quede constancia de que alguien sacó dinero.</p>
+  <p class="ayuda">Cada egreso se avisa automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}) con sus archivos adjuntos, para que quede constancia de que alguien sacó dinero.</p>
 </div>
 
 <div class="card" style="margin-top:16px;">
   <table>
-    <tr><th>Fecha</th><th>Concepto</th><th>Monto</th><th>Respaldo</th><th></th></tr>
+    <tr><th>Fecha</th><th>Concepto</th><th>Forma de pago</th><th class="num">Monto</th><th>Archivos</th><th></th></tr>
     {% for e in egresos %}
     <tr>
-      <td>{{ e.fecha.strftime('%d/%m/%Y') }}</td>
+      <td class="nowrap">{{ e.fecha.strftime('%d/%m/%Y') }}</td>
       <td>{{ e.concepto }}</td>
-      <td>${{ '%.2f'|format(e.monto) }}</td>
-      <td>{% if e.comprobante_path %}<a class="enlace" href="/static/{{ e.comprobante_path }}" target="_blank">ver</a>{% else %}—{% endif %}</td>
+      <td class="nowrap">{{ e.forma_pago_legible or '—' }}</td>
+      <td class="num">{{ e.monto|dinero }}</td>
+      <td class="archivos-lista">
+        {% if e.recibo_path %}<a class="enlace" href="/egresos/{{ e.id }}/archivo/recibo" target="_blank">Recibo</a>{% endif %}
+        {% if e.xml_path %}<a class="enlace" href="/egresos/{{ e.id }}/archivo/xml" target="_blank">XML</a>{% endif %}
+        {% if e.comprobante_path %}<a class="enlace" href="/egresos/{{ e.id }}/archivo/comprobante" target="_blank">Comprobante de pago</a>{% endif %}
+        {% if not e.recibo_path %}<span class="falta-recibo">Sin recibo</span>{% endif %}
+      </td>
       <td class="acciones">
         <a class="enlace" href="/egresos?editar={{ e.id }}#egreso-{{ e.id }}">Editar</a>
         <form method="post" action="/egresos/{{ e.id }}/eliminar" style="display:inline"
-              onsubmit="return confirm('¿Cancelar el egreso &quot;{{ e.concepto }}&quot; por ${{ '%.2f'|format(e.monto) }}? El dinero vuelve al saldo acumulado del conjunto.')">
+              onsubmit="return confirm('¿Cancelar el egreso &quot;{{ e.concepto }}&quot; por {{ e.monto|dinero }}? El dinero vuelve al saldo acumulado del conjunto.')">
           <button type="submit" class="enlace-boton peligro">Cancelar</button>
         </form>
       </td>
     </tr>
     {% if editar_id == e.id|string %}
     <tr id="egreso-{{ e.id }}">
-      <td colspan="5">
-        <form method="post" action="/egresos/{{ e.id }}/editar" enctype="multipart/form-data" class="form-inline-editar">
+      <td colspan="6">
+        {% if error_editar %}<div class="aviso error-aviso">{{ error_editar }}</div>{% endif %}
+        <form method="post" action="/egresos/{{ e.id }}/editar" enctype="multipart/form-data" class="form-inline-editar" style="max-width:760px;">
           <label>Concepto</label>
           <input type="text" name="concepto" value="{{ e.concepto }}" required>
-          <label>Monto</label>
-          <div class="campo-moneda">
-            <span>$</span>
-            <input type="number" step="0.01" min="0" name="monto" value="{{ '%.2f'|format(e.monto) }}" required>
+          <div class="fila-campos">
+            <div>
+              <label>Monto</label>
+              <div class="campo-moneda">
+                <span>$</span>
+                <input type="number" step="0.01" min="0" name="monto" value="{{ '%.2f'|format(e.monto) }}" required>
+              </div>
+            </div>
+            <div>
+              <label>Fecha</label>
+              <input type="date" name="fecha" value="{{ e.fecha.isoformat() }}" required>
+            </div>
           </div>
-          <label>Fecha</label>
-          <input type="date" name="fecha" value="{{ e.fecha.isoformat() }}" required>
-          <label>Reemplazar comprobante (opcional)</label>
-          <input type="file" name="comprobante" accept="image/*,application/pdf">
-          <button type="submit" class="pequeno">Guardar cambios</button>
+          <label>Forma de pago</label>
+          <select name="forma_pago" {{ 'required' if e.forma_pago else '' }}>
+            {% if not e.forma_pago %}<option value="" selected>Sin registrar</option>{% endif %}
+            {% for clave, etiqueta in formas_pago %}
+            <option value="{{ clave }}" {{ 'selected' if e.forma_pago == clave else '' }}>{{ etiqueta }}</option>
+            {% endfor %}
+          </select>
+          {% if not e.recibo_path %}<div class="aviso" style="margin:12px 0 0;">Este egreso no tiene recibo o factura. Aprovecha para subirlo.</div>{% endif %}
+          {{ campos_archivos(e) }}
+          <button type="submit" class="pequeno" style="margin-top:14px;">Guardar cambios</button>
           <a class="btn secundario pequeno" href="/egresos">Cancelar edición</a>
         </form>
       </td>
     </tr>
     {% endif %}
     {% else %}
-    <tr><td colspan="5">Todavía no hay egresos registrados.</td></tr>
+    <tr><td colspan="6">Todavía no hay egresos registrados.</td></tr>
     {% endfor %}
   </table>
 </div>

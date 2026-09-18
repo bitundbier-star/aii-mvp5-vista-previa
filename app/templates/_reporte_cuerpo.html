@@ -32,7 +32,27 @@
   <div class="stat"><div class="valor">{{ reporte.propiedades_al_corriente }}/{{ reporte.propiedades_al_corriente + reporte.propiedades_con_adeudo }}</div><div class="etiqueta">Propiedades al corriente</div></div>
 </div>
 
-{# --- 1 y 2: por propiedad, saldo acumulado y lo pagado en el mes -------- #}
+{# --- 1 y 2: por propiedad, saldo acumulado y lo pagado en el mes --------
+   Dos versiones, que se eligen cada vez que se genera el reporte: el
+   detalle propiedad por propiedad, o un resumen que no expone a nadie. #}
+{% if version == 'resumen' %}
+<div class="card">
+  <h2>Estado de la cartera</h2>
+  <div class="resumen-cartera">
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Monto por cobrar</div>
+      <div class="saldo-cifra saldo-debe" style="font-size:24px; font-weight:700;">{{ reporte.cartera_total|dinero }}</div>
+      <div class="ayuda">{{ reporte.propiedades_con_adeudo }} de {{ reporte.propiedades_al_corriente + reporte.propiedades_con_adeudo }} propiedades con adeudo</div>
+    </div>
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Monto pagado por adelantado</div>
+      <div class="saldo-cifra saldo-favor" style="font-size:24px; font-weight:700;">{{ reporte.a_favor_total|dinero }}</div>
+      <div class="ayuda">{{ reporte.propiedades_con_saldo_a_favor }} propiedades con saldo a favor</div>
+    </div>
+  </div>
+  <p class="ayuda">Saldos al último día de {{ reporte.periodo }}. Esta versión del reporte no muestra el estado de cada propiedad.</p>
+</div>
+{% else %}
 <div class="card">
   <h2>Por propiedad</h2>
   <table>
@@ -62,6 +82,7 @@
   </table>
   <p class="ayuda">El saldo acumulado es al último día de {{ reporte.periodo }}. «Al corriente» incluye a quien no debe nada y a quien pagó por adelantado.</p>
 </div>
+{% endif %}
 
 {# --- 3 y 4: los egresos del mes, uno por uno --------------------------- #}
 <div class="card">

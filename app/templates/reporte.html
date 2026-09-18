@@ -3,7 +3,6 @@
 {% block contenido %}
 
 <div class="encabezado-reporte">
-  <img src="/static/img/logo-con-nombre.png" alt="AII" class="logo-reporte">
   <div>
     <h1 style="margin:0">Reporte mensual{% if reporte %} — {{ reporte.periodo }}{% endif %}</h1>
     <p class="ayuda" style="margin:4px 0 0;">{{ conjunto.nombre }} · Administra {{ conjunto.admin_nombre }}</p>
@@ -26,62 +25,143 @@
 </div>
 {% else %}
 
-{% if reporte.meses_disponibles|length > 1 %}
-<div class="card selector-mes">
-  <form method="get" action="/reporte">
-    <label>Mes del reporte</label>
-    <select name="periodo" onchange="var v=this.value.split('-'); window.location='/reporte?anio='+v[0]+'&mes='+v[1];">
-      {% for m in reporte.meses_disponibles %}
-      <option value="{{ m.anio }}-{{ m.mes }}" {{ 'selected' if m.anio == reporte.anio and m.mes == reporte.mes }}>
-        {{ m.titulo }}{{ ' — el más reciente' if m.es_el_nuevo }}
-      </option>
-      {% endfor %}
-    </select>
+{% set q = 'anio=' ~ reporte.anio ~ '&mes=' ~ reporte.mes ~ '&version=' ~ version %}
+
+<div class="card">
+  <form method="get" action="/reporte" id="form-opciones-reporte">
+    <div class="fila-campos">
+      <div>
+        <label style="margin-top:0;">Mes del reporte</label>
+        <select name="periodo" onchange="cambiarOpciones()">
+          {% for m in reporte.meses_disponibles %}
+          <option value="{{ m.anio }}-{{ m.mes }}" {{ 'selected' if m.anio == reporte.anio and m.mes == reporte.mes }}>
+            {{ m.titulo }}{{ ' — el más reciente' if m.es_el_nuevo }}
+          </option>
+          {% endfor %}
+        </select>
+        <p class="ayuda" style="margin-bottom:0;">Los meses anteriores no caducan: se pueden consultar y descargar cuando quieras.</p>
+      </div>
+      <div>
+        <label style="margin-top:0;">Saldos por propiedad</label>
+        <div class="selector-opciones">
+          <label><input type="radio" name="version" value="detalle" {{ 'checked' if version == 'detalle' }} onchange="cambiarOpciones()"> Detalle por propiedad</label>
+          <label><input type="radio" name="version" value="resumen" {{ 'checked' if version == 'resumen' }} onchange="cambiarOpciones()"> Resumen, sin nombres</label>
+        </div>
+        <p class="ayuda" style="margin-bottom:0;">El resumen solo muestra el monto por cobrar y el monto pagado por adelantado, sin exponer a ningún vecino. Lo que elijas aquí es lo que sale en el PDF y en el correo.</p>
+      </div>
+    </div>
   </form>
-  <p class="ayuda" style="margin-bottom:0;">Los meses anteriores no caducan: se pueden consultar y descargar cuando quieras.</p>
 </div>
-{% endif %}
 
 <div class="card acciones-reporte">
-  <a class="btn" href="/reporte/imprimir?anio={{ reporte.anio }}&mes={{ reporte.mes }}" target="_blank">Descargar en PDF</a>
-  <form method="post" action="/reporte/imagen" style="display:inline">
-    <input type="hidden" name="anio" value="{{ reporte.anio }}">
-    <input type="hidden" name="mes" value="{{ reporte.mes }}">
-    <button type="submit" class="secundario">Generar imagen para compartir</button>
-  </form>
-  <a class="btn whatsapp" target="_blank" href="https://wa.me/?text={{ whatsapp }}">Compartir por WhatsApp</a>
-  <p class="ayuda" style="margin-bottom:0;">El botón de PDF abre el reporte listo para imprimir: en el diálogo del navegador elige "Guardar como PDF". El de WhatsApp solo abre un mensaje ya escrito — <strong>nada se envía solo</strong>, tú decides a quién mandárselo.</p>
-</div>
-
-{% if imagen %}
-<div class="card" style="text-align:center;">
-  <h2 style="margin-top:0">Imagen del reporte</h2>
-  <img class="comprobante-img" src="/static/{{ imagen }}" alt="Reporte en imagen">
-  <div style="margin-top:14px;">
-    <a class="btn secundario pequeno" href="/static/{{ imagen }}" download>Descargar imagen</a>
+  {# Celular: el PDF se comparte como ARCHIVO desde el menú de compartir del
+     teléfono (ahí aparece WhatsApp). Escritorio: se descarga o se manda por
+     correo más abajo. #}
+  <div class="solo-movil">
+    <div class="acciones-compartir" style="justify-content:flex-start;">
+      <button type="button" class="whatsapp" data-compartir-archivo
+              data-url="/reporte/pdf?{{ q }}" data-nombre="Reporte {{ reporte.periodo }}.pdf"
+              data-titulo="Reporte {{ reporte.periodo }} — {{ conjunto.nombre }}" data-aviso="aviso-descarga-reporte"
+              onclick="AII.compartirArchivo(this)">Compartir PDF por WhatsApp</button>
+      <a class="btn secundario" href="/reporte/pdf?{{ q }}">Descargar PDF</a>
+    </div>
+    <p class="ayuda" style="margin-bottom:0;">Se abre el menú de compartir de tu teléfono con el PDF: elige WhatsApp y el chat o grupo.</p>
+    <div class="aviso info" id="aviso-descarga-reporte" hidden style="margin:10px 0 0;">
+      Tu navegador no permite compartir archivos directamente, así que el PDF se descargó: adjúntalo en el chat de WhatsApp.
+    </div>
   </div>
-  <p class="ayuda">Descárgala y adjúntala en el chat de WhatsApp: los enlaces no pueden adjuntar la imagen por ti.</p>
+  <div class="solo-escritorio">
+    <div class="acciones-compartir" style="justify-content:flex-start;">
+      <a class="btn" href="/reporte/pdf?{{ q }}">Descargar PDF</a>
+      <a class="btn secundario" href="#enviar-correo">Enviar por correo</a>
+      <a class="btn secundario" href="/reporte/imprimir?{{ q }}" target="_blank">Imprimir</a>
+    </div>
+    <p class="ayuda" style="margin-bottom:0;">Para mandarlo por WhatsApp desde la computadora, descarga el PDF y adjúntalo en el chat.</p>
+  </div>
 </div>
-{% endif %}
 
 {% include "_reporte_cuerpo.html" %}
 
-<div class="card">
+<div class="card" id="enviar-correo">
   <h2 style="margin-top:0">Enviar este reporte por correo</h2>
-  <p class="ayuda">El reporte del mes que cierra se envía automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}). Aquí puedes además enviarlo a quien tú decidas.</p>
-  <form method="post" action="/reporte/enviar?anio={{ reporte.anio }}&mes={{ reporte.mes }}">
-    <label>Destinatarios (separados por coma)</label>
-    <input type="text" name="destinatarios" placeholder="vecino1@correo.com, vecino2@correo.com" required>
+  <p class="ayuda">El reporte del mes que cierra se envía solo, cada mes, al correo de la cuenta ({{ conjunto.cuenta_email }}). Aquí puedes mandárselo a los vecinos: les llega con el PDF adjunto, en la versión que elegiste arriba ({{ 'resumen, sin nombres' if version == 'resumen' else 'detalle por propiedad' }}).</p>
+
+  {% if error_envio %}<div class="aviso error-aviso">{{ error_envio }}</div>{% endif %}
+
+  <form method="post" action="/reporte/enviar?anio={{ reporte.anio }}&mes={{ reporte.mes }}" id="form-envio">
+    <input type="hidden" name="version" value="{{ version }}">
+    <label>¿A quién?</label>
+    <div class="selector-opciones">
+      <label><input type="radio" name="modo" value="todos" {{ 'checked' if destinatarios.modo == 'todos' }} onchange="alternarSeleccion()"> Todos ({{ total_correos }} correos)</label>
+      <label><input type="radio" name="modo" value="duenos" {{ 'checked' if destinatarios.modo == 'duenos' }} onchange="alternarSeleccion()"> Todos los dueños ({{ total_duenos }})</label>
+      <label><input type="radio" name="modo" value="seleccion" {{ 'checked' if destinatarios.modo == 'seleccion' }} onchange="alternarSeleccion()"> Seleccionar uno por uno</label>
+    </div>
+    <p class="ayuda">«Todos» incluye propietarios y residentes. Los correos se toman de la ficha de cada propiedad{% if sin_correo %}; {{ sin_correo }} {{ 'propiedad no tiene' if sin_correo == 1 else 'propiedades no tienen' }} ningún correo registrado (se agregan desde Configuración){% endif %}.</p>
+
+    <div id="bloque-seleccion" {{ '' if destinatarios.modo == 'seleccion' else 'hidden' }}>
+      <div style="display:flex; gap:14px; margin-top:6px;">
+        <button type="button" class="enlace-boton" style="margin:0;" onclick="marcarTodos(true)">Marcar todos</button>
+        <button type="button" class="enlace-boton" style="margin:0;" onclick="marcarTodos(false)">Desmarcar todos</button>
+      </div>
+      <div class="lista-correos">
+        {% for fila in filas_correos %}
+        <div class="prop-correos">
+          <strong style="font-size:13.5px;">{{ fila.propiedad.etiqueta }}</strong>
+          {% for c in fila.correos %}
+          <div class="check">
+            <input type="checkbox" name="seleccion" value="{{ c.correo }}" id="c-{{ fila.propiedad.id }}-{{ loop.index }}"
+                   {{ 'checked' if c.correo in destinatarios.seleccion }}>
+            <label for="c-{{ fila.propiedad.id }}-{{ loop.index }}">{{ c.quien }} <span class="ayuda" style="display:inline;">({{ c.rol }} · {{ c.correo }})</span></label>
+          </div>
+          {% else %}
+          <div class="sin-correo">Sin correo registrado</div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <label>Correos extra (opcional)</label>
+    <input type="text" name="extras" value="{{ destinatarios.extras }}" placeholder="por ejemplo, comite@correo.com, contador@correo.com">
+    <div class="ayuda">Para alguien que no está en las fichas: el comité, el contador… Sepáralos con coma.</div>
+
     <button type="submit">Enviar por correo</button>
+    <p class="ayuda" style="margin-bottom:0;">La próxima vez que entres, esta elección ya va a estar puesta.</p>
   </form>
+
   {% if resultado %}
-  <div style="margin-top:14px;">
-    {% for destino, r in resultado %}
-    <div class="aviso {{ 'exito' if r.enviado else 'info' }}">{{ destino }}: {{ r.detalle }}</div>
-    {% endfor %}
+  {% set ns = namespace(enviados=0) %}{% for _d, r in resultado %}{% if r.enviado %}{% set ns.enviados = ns.enviados + 1 %}{% endif %}{% endfor %}
+  <div class="aviso {{ 'exito' if smtp_real else 'info' }}" style="margin-top:14px;">
+    {% if smtp_real %}
+    Se envió a {{ ns.enviados }} de {{ resultado|length }} correos.
+    {% else %}
+    Modo de prueba: todavía no hay un correo real configurado, así que los {{ resultado|length }} correos se guardaron como vista previa en lugar de enviarse.
+    {% endif %}
   </div>
+  <details style="font-size:13.5px;">
+    <summary style="cursor:pointer;">Ver el detalle por correo</summary>
+    <ul>
+      {% for destino, r in resultado %}<li>{{ destino }}: {{ 'enviado' if r.enviado else r.detalle }}</li>{% endfor %}
+    </ul>
+  </details>
   {% endif %}
 </div>
+
+<script>
+function cambiarOpciones() {
+  var f = document.getElementById('form-opciones-reporte');
+  var p = f.querySelector('[name=periodo]').value.split('-');
+  var v = f.querySelector('[name=version]:checked').value;
+  window.location = '/reporte?anio=' + p[0] + '&mes=' + p[1] + '&version=' + v;
+}
+function alternarSeleccion() {
+  var modo = document.querySelector('#form-envio [name=modo]:checked').value;
+  document.getElementById('bloque-seleccion').hidden = modo !== 'seleccion';
+}
+function marcarTodos(valor) {
+  document.querySelectorAll('#bloque-seleccion input[type=checkbox]').forEach(function (c) { c.checked = valor; });
+}
+</script>
 
 {% endif %}
 {% endblock %}

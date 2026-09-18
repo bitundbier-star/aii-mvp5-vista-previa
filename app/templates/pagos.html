@@ -63,26 +63,34 @@
 
 <div class="card">
   <table>
-    <tr><th>Folio</th><th>Propiedad</th><th>Fecha</th><th>Concepto</th><th>Método</th><th>Monto</th><th></th></tr>
-    {% for p in pagos %}
-    <tr class="{{ 'fila-cancelada' if p.cancelado else '' }}">
-      <td>
-        {{ p.folio }}
-        {% if p.cancelado %}<span class="etiqueta-saldo saldo-debe">Cancelado</span>{% endif %}
+    <tr><th>Folio</th><th>Propiedad</th><th>Fecha</th><th>Concepto</th><th>Método</th><th class="num">Monto</th><th></th></tr>
+    {% for r in recibos %}
+    <tr class="{{ 'fila-cancelada' if r.cancelado else '' }}">
+      <td class="nowrap">
+        {{ r.folio }}
+        {% if r.cancelado %}<div><span class="etiqueta-saldo saldo-debe">Cancelado</span></div>{% endif %}
       </td>
-      <td>{{ p.propiedad.etiqueta }}</td>
-      <td>{{ p.fecha_recepcion.strftime('%d/%m/%Y') }}</td>
+      <td class="nowrap">{{ r.propiedad.etiqueta }}</td>
+      <td class="nowrap">{{ r.fecha_recepcion.strftime('%d/%m/%Y') }}</td>
       <td>
-        {{ p.concepto_legible }}
-        {% if not p.abona_a_cartera %}<div class="ayuda">No baja la deuda</div>{% endif %}
+        {% if r.varias %}
+        <ul class="lista-partidas">
+          {% for p in r.partidas %}
+          <li>{{ p.concepto_legible }}: {{ p.monto|dinero }}{% if not p.abona_a_cartera %}<span class="ayuda">(no baja la deuda)</span>{% endif %}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        {{ r.primera.concepto_legible }}
+        {% if not r.primera.abona_a_cartera %}<div class="ayuda">No baja la deuda</div>{% endif %}
+        {% endif %}
       </td>
-      <td class="ayuda">{{ p.metodo_pago_legible }}</td>
-      <td>${{ '%.2f'|format(p.monto) }}</td>
-      <td style="white-space:nowrap;">
-        <a class="enlace" href="/comprobantes/{{ p.folio }}">ver</a>
-        {% if p.puede_cancelarse %}
-        <form method="post" action="/pagos/{{ p.id }}/cancelar" style="display:inline;"
-              onsubmit="return confirm('¿Cancelar el pago {{ p.folio }} por ${{ '%.2f'|format(p.monto) }}? La propiedad vuelve a deber ese monto. El pago no se borra: queda marcado como cancelado.')">
+      <td class="ayuda nowrap">{{ r.metodo_pago_legible }}</td>
+      <td class="num">{{ r.total|dinero }}</td>
+      <td class="nowrap">
+        <a class="enlace" href="/comprobantes/{{ r.folio }}">Ver</a>
+        {% if r.puede_cancelarse %}
+        <form method="post" action="/pagos/{{ r.primera.id }}/cancelar" style="display:inline;"
+              onsubmit="return confirm('¿Cancelar el pago {{ r.folio }} por {{ r.total|dinero }}? La propiedad vuelve a deber ese monto. El pago no se borra: queda marcado como cancelado.')">
           <input type="hidden" name="volver" value="pagos">
           <button type="submit" class="enlace-boton peligro">Cancelar</button>
         </form>

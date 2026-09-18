@@ -4,7 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block titulo %}Administración del conjunto{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  {# ?v= cambia en cada despliegue que modifique los estilos: obliga a todos
+     los navegadores a bajar la versión nueva en vez de usar la guardada. #}
+  <link rel="stylesheet" href="/static/css/style.css?v={{ v_static }}">
+  <link rel="icon" type="image/png" href="/static/img/favicon.png?v={{ v_static }}">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png?v={{ v_static }}">
 </head>
 <body>
 {% if modo_demo %}
@@ -19,9 +23,9 @@
 <div class="barra-superior">
   <header class="topbar">
     <div class="marca-wrap">
-      <a href="/dashboard"><img src="/static/img/logo.png" alt="AII" class="logo-icono"></a>
+      <a href="/dashboard"><img src="/static/img/logo.png?v={{ v_static }}" alt="" class="logo-icono"></a>
       <div class="marca-texto">
-        <a class="marca" href="/dashboard">AII · Vecinos</a><br>
+        <a class="marca" href="/dashboard">Administración inteligente de inmuebles: Auto-administración de residenciales</a>
         <span class="conjunto-nombre">{{ conjunto.nombre }} — {{ conjunto.admin_nombre }}</span>
       </div>
     </div>
@@ -38,13 +42,63 @@
   </nav>
 </div>
 {% endif %}
-<div class="contenedor{{ ' contenedor-angosto' if not conjunto else '' }}">
+<div class="contenedor{{ ' contenedor-angosto' if not conjunto else '' }} {% block ancho %}{% endblock %}">
   {% block contenido %}{% endblock %}
 </div>
 <footer class="pie">MVP — Administración Inteligente de Inmuebles</footer>
 {% if conjunto %}
 <button type="button" class="btn-subir-arriba" id="btn-subir-arriba" aria-label="Subir al inicio de la página" title="Subir al inicio">↑</button>
 {% endif %}
+<script>
+// Compartir un archivo (imagen del comprobante, PDF del reporte) desde el
+// celular: abre el menú de compartir del teléfono con el ARCHIVO, no con un
+// texto, y desde ahí se elige WhatsApp. El archivo se baja en cuanto carga
+// la página: el menú de compartir solo se deja abrir justo en el momento del
+// toque, y esperar a descargarlo ahí mismo hace que algunos teléfonos lo
+// bloqueen.
+window.AII = window.AII || {};
+(function () {
+  var cache = {};
+  function precargar(url, nombre) {
+    if (!cache[url]) {
+      cache[url] = fetch(url, { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+        .then(function (blob) { return new File([blob], nombre, { type: blob.type }); });
+      cache[url].catch(function () { delete cache[url]; });
+    }
+    return cache[url];
+  }
+  function descargar(url, nombre) {
+    var a = document.createElement('a');
+    a.href = url; a.download = nombre;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  AII.precargarArchivo = precargar;
+  AII.compartirArchivo = function (boton) {
+    var url = boton.dataset.url, nombre = boton.dataset.nombre, titulo = boton.dataset.titulo || '';
+    var aviso = document.getElementById(boton.dataset.aviso || '');
+    precargar(url, nombre).then(function (archivo) {
+      if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+        return navigator.share({ files: [archivo], title: titulo }).catch(function (e) {
+          if (e && e.name === 'AbortError') return; // la persona cerró el menú
+          throw e;
+        });
+      }
+      descargar(url, nombre);
+      if (aviso) aviso.hidden = false;
+    }).catch(function () {
+      descargar(url, nombre);
+      if (aviso) aviso.hidden = false;
+    });
+  };
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!window.matchMedia('(max-width: 767.98px)').matches) return;
+    document.querySelectorAll('[data-compartir-archivo]').forEach(function (b) {
+      precargar(b.dataset.url, b.dataset.nombre);
+    });
+  });
+})();
+</script>
 <script>
 // Botón flotante de "subir arriba": aparece después de bajar un poco la
 // página (para no estorbar en pantallas cortas donde ya se ve todo) y

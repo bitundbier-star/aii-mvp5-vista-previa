@@ -1,5 +1,5 @@
 <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; color:#1a1a1a;">
-  <h2 style="color:#1d4ed8; margin-bottom:4px;">Reporte de {{ reporte.periodo }} — {{ conjunto.nombre }}</h2>
+  <h2 style="color:#176BA0; margin-bottom:4px;">Reporte de {{ reporte.periodo }} — {{ conjunto.nombre }}</h2>
   <p style="color:#666; margin-top:0; font-size:13px;">
     Del {{ reporte.primer_dia.strftime('%d/%m/%Y') }} al {{ reporte.ultimo_dia.strftime('%d/%m/%Y') }}
   </p>
@@ -42,6 +42,13 @@
   </table>
   {% endif %}
 
+  {% if version == 'resumen' %}
+  <h3 style="font-size:15px;">Estado de la cartera</h3>
+  <table style="width:100%; border-collapse: collapse; font-size: 14px;">
+    <tr><td style="padding:6px 0; color:#666;">Monto por cobrar</td><td style="padding:6px 0; text-align:right; color:#b3261e;"><strong>{{ reporte.cartera_total|dinero }}</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Monto pagado por adelantado</td><td style="padding:6px 0; text-align:right; color:#0a7d3c;"><strong>{{ reporte.a_favor_total|dinero }}</strong></td></tr>
+  </table>
+  {% else %}
   <h3 style="font-size:15px;">Por propiedad</h3>
   <table style="width:100%; border-collapse: collapse; font-size: 13px;">
     <tr style="color:#666; text-align:left;">
@@ -54,11 +61,14 @@
     <tr>
       <td style="padding:4px 0; border-top:1px solid #eee;">{{ e.propiedad.etiqueta }}</td>
       <td style="padding:4px 0; border-top:1px solid #eee; text-align:right;">{{ e.pagado_en_el_mes|dinero }}</td>
-      <td style="padding:4px 0; border-top:1px solid #eee; text-align:right; color:{{ '#b3261e' if e.vista.clave == 'debe' else '#0a7d3c' }};">{{ e.vista.monto }}</td>
-      <td style="padding:4px 0; border-top:1px solid #eee; text-align:right; color:{{ '#b3261e' if e.vista.clave == 'debe' else '#0a7d3c' }};">{{ e.vista.palabra }}</td>
+      <td style="padding:4px 0; border-top:1px solid #eee; text-align:right; color:{{ {'debe': '#b3261e', 'favor': '#0a7d3c'}.get(e.vista.clave, '#1a1a1a') }};">{{ e.vista.monto }}</td>
+      <td style="padding:4px 0; border-top:1px solid #eee; text-align:right; color:{{ {'debe': '#b3261e', 'favor': '#0a7d3c'}.get(e.vista.clave, '#1a1a1a') }};">{{ e.vista.palabra }}</td>
     </tr>
     {% endfor %}
   </table>
 
+  {% endif %}
+
+  <p style="margin-top:18px; color:#666; font-size:13px;">El reporte completo va adjunto en PDF.</p>
   <p style="margin-top:22px; color:#999; font-size:12px;">Generado el {{ reporte.generado_en.strftime('%d/%m/%Y %H:%M') }}.</p>
 </div>

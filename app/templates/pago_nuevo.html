@@ -1,55 +1,79 @@
 {% extends "base.html" %}
 {% block titulo %}Registrar pago{% endblock %}
+{% block ancho %}angosto{% endblock %}
 {% block contenido %}
 <h1>Registrar pago recibido</h1>
 
+{% if error %}
+<div class="aviso error-aviso">{{ error }}</div>
+{% endif %}
+
 <div class="card">
-  <form method="post" action="/pagos/nuevo">
+  <form method="post" action="/pagos/nuevo" id="form-pago">
     <label>Propiedad</label>
     <select name="propiedad_id" id="propiedad_id" required onchange="limpiarSugerido()">
       {% for p in propiedades %}
-      <option value="{{ p.id }}">{{ p.etiqueta }}{% if p.nombre_dueno %} — {{ p.nombre_dueno }}{% endif %}</option>
+      <option value="{{ p.id }}" {{ 'selected' if previo.propiedad_id == p.id else '' }}>{{ p.etiqueta }}{% if p.nombre_dueno %} — {{ p.nombre_dueno }}{% endif %}</option>
       {% endfor %}
     </select>
 
     <label>Fecha de recepción</label>
-    <input type="date" name="fecha_recepcion" value="{{ hoy }}" required>
+    <input type="date" name="fecha_recepcion" value="{{ previo.fecha_recepcion or hoy }}" required>
 
-    <label>Monto recibido</label>
-    <div class="campo-moneda">
-      <span>$</span>
-      <input type="number" step="0.01" min="0" name="monto" id="monto" required placeholder="0.00">
-    </div>
-    <button type="button" class="enlace-boton" id="btn-monto-sugerido" onclick="usarMontoSugerido()">Usar lo que debe hoy</button>
+    <label style="margin-top:18px;">¿Qué cubre este pago?</label>
+    <div class="ayuda">Si en un mismo depósito vienen varios conceptos (por ejemplo, mantenimiento y gas), agrega un renglón por cada uno. Se entrega un solo comprobante con el desglose.</div>
 
-    <label>Concepto</label>
-    <select name="concepto" id="concepto" required onchange="alternarProyecto()">
-      {% for clave, etiqueta in conceptos %}
-      <option value="{{ clave }}">{{ etiqueta }}</option>
+    <div id="partidas">
+      {% set filas = previo.partidas if previo.partidas else [{'concepto': 'mantenimiento', 'monto': '', 'proyecto_id': ''}] %}
+      {% for fila in filas %}
+      <div class="partida">
+        <div>
+          <label>Concepto</label>
+          <select name="concepto" class="sel-concepto" onchange="alternarProyecto(this)">
+            {% for clave, etiqueta in conceptos %}
+            <option value="{{ clave }}" {{ 'selected' if fila.concepto == clave else '' }}>{{ etiqueta }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bloque-proyecto-partida" {{ '' if fila.concepto == 'proyecto' else 'hidden' }}>
+          <label>¿Cuál proyecto?</label>
+          <select name="proyecto_id" class="sel-proyecto">
+            {% for pr in proyectos %}
+            <option value="{{ pr.id }}" {{ 'selected' if fila.proyecto_id == pr.id|string else '' }}>{{ pr.concepto }}</option>
+            {% else %}
+            <option value="">No hay proyectos en curso</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Monto</label>
+          <div class="campo-moneda">
+            <span>$</span>
+            <input type="number" step="0.01" min="0" name="monto" class="monto-partida" value="{{ fila.monto }}" placeholder="0.00" oninput="actualizarTotal()">
+          </div>
+        </div>
+        <button type="button" class="enlace-boton peligro quitar-partida" onclick="quitarPartida(this)">Quitar</button>
+      </div>
       {% endfor %}
-    </select>
-
-    <div id="bloque-proyecto" style="display:none;">
-      <label>¿Cuál proyecto?</label>
-      <select name="proyecto_id" id="proyecto_id">
-        {% for pr in proyectos %}
-        <option value="{{ pr.id }}">{{ pr.concepto }}</option>
-        {% else %}
-        <option value="">No hay proyectos en curso</option>
-        {% endfor %}
-      </select>
     </div>
+
+    <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:10px;">
+      <button type="button" class="enlace-boton" style="margin:0;" onclick="agregarPartida()">+ Agregar otro concepto</button>
+      <button type="button" class="enlace-boton" style="margin:0;" id="btn-monto-sugerido" onclick="usarMontoSugerido()">Usar lo que debe hoy</button>
+    </div>
+
+    <div class="total-partidas">Total recibido: <strong id="total-partidas">$0.00</strong></div>
 
     <label>Método de pago</label>
     <select name="metodo_pago" required>
       {% for clave, etiqueta in metodos %}
-      <option value="{{ clave }}">{{ etiqueta }}</option>
+      <option value="{{ clave }}" {{ 'selected' if previo.metodo_pago == clave else '' }}>{{ etiqueta }}</option>
       {% endfor %}
     </select>
     <div class="ayuda">Es solo para tu registro: no cambia ningún cálculo de la cartera.</div>
 
     <label>Enviar el comprobante también al vecino (opcional)</label>
-    <input type="email" name="correo_destino" placeholder="correo del vecino que pagó">
+    <input type="email" name="correo_destino" value="{{ previo.correo_destino or '' }}" placeholder="correo del vecino que pagó">
     <div class="ayuda">El comprobante se manda siempre y automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}). Esto es por si además quieres mandárselo a quien pagó.</div>
 
     <button type="submit">Registrar y generar comprobante</button>
@@ -58,20 +82,97 @@
 
 <div class="aviso info">
   No hace falta decir a qué mes corresponde el pago: la deuda es la deuda y el sistema lo aplica al adeudo más viejo primero, como los bancos.
-  Ten en cuenta que solo <strong>Mantenimiento</strong> y <strong>Proyecto</strong> bajan la deuda de la propiedad; Gas, Agua y Otros se registran como ingreso del conjunto pero no reducen su saldo.
+  Ten en cuenta que solo <strong>Mantenimiento</strong> y <strong>Proyecto</strong> bajan la deuda de la propiedad; Gas, Agua y Otros se registran como ingreso del conjunto pero no reducen su saldo. Cuando un depósito trae varios conceptos, cada parte sigue su propia regla.
 </div>
 
+<template id="plantilla-partida">
+  <div class="partida">
+    <div>
+      <label>Concepto</label>
+      <select name="concepto" class="sel-concepto" onchange="alternarProyecto(this)">
+        {% for clave, etiqueta in conceptos %}
+        <option value="{{ clave }}">{{ etiqueta }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bloque-proyecto-partida" hidden>
+      <label>¿Cuál proyecto?</label>
+      <select name="proyecto_id" class="sel-proyecto">
+        {% for pr in proyectos %}
+        <option value="{{ pr.id }}">{{ pr.concepto }}</option>
+        {% else %}
+        <option value="">No hay proyectos en curso</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Monto</label>
+      <div class="campo-moneda">
+        <span>$</span>
+        <input type="number" step="0.01" min="0" name="monto" class="monto-partida" placeholder="0.00" oninput="actualizarTotal()">
+      </div>
+    </div>
+    <button type="button" class="enlace-boton peligro quitar-partida" onclick="quitarPartida(this)">Quitar</button>
+  </div>
+</template>
+
 <script>
-function alternarProyecto() {
-  var concepto = document.getElementById('concepto').value;
-  document.getElementById('bloque-proyecto').style.display = (concepto === 'proyecto') ? 'block' : 'none';
+// Cada partida manda siempre su select de proyecto (aunque esté oculto) para
+// que las tres listas —concepto, proyecto, monto— lleguen alineadas al
+// servidor, renglón por renglón.
+function partidas() { return document.querySelectorAll('#partidas .partida'); }
+
+function alternarProyecto(select) {
+  var fila = select.closest('.partida');
+  fila.querySelector('.bloque-proyecto-partida').hidden = select.value !== 'proyecto';
 }
-alternarProyecto();
+
+function actualizarBotonesQuitar() {
+  var filas = partidas();
+  filas.forEach(function (f) { f.querySelector('.quitar-partida').style.display = filas.length > 1 ? '' : 'none'; });
+}
+
+function actualizarTotal() {
+  var total = 0;
+  document.querySelectorAll('.monto-partida').forEach(function (i) { total += parseFloat(i.value) || 0; });
+  document.getElementById('total-partidas').textContent =
+    '$' + total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function agregarPartida(concepto, monto, proyectoId) {
+  var nodo = document.getElementById('plantilla-partida').content.firstElementChild.cloneNode(true);
+  document.getElementById('partidas').appendChild(nodo);
+  var sel = nodo.querySelector('.sel-concepto');
+  if (concepto) sel.value = concepto;
+  else {
+    // Sugerir un concepto que todavía no esté en uso.
+    var usados = Array.prototype.map.call(document.querySelectorAll('.sel-concepto'), function (s) { return s.value; });
+    for (var i = 0; i < sel.options.length; i++) {
+      if (usados.indexOf(sel.options[i].value) === -1) { sel.value = sel.options[i].value; break; }
+    }
+  }
+  if (proyectoId) nodo.querySelector('.sel-proyecto').value = proyectoId;
+  if (monto !== undefined) nodo.querySelector('.monto-partida').value = monto;
+  alternarProyecto(sel);
+  actualizarBotonesQuitar();
+  actualizarTotal();
+  return nodo;
+}
+
+function quitarPartida(boton) {
+  if (partidas().length <= 1) return;
+  boton.closest('.partida').remove();
+  actualizarBotonesQuitar();
+  actualizarTotal();
+}
 
 function limpiarSugerido() {
   document.getElementById('btn-monto-sugerido').textContent = 'Usar lo que debe hoy';
 }
 
+// Llena los renglones con lo que la propiedad debe hoy: un renglón de
+// mantenimiento y uno por cada proyecto con saldo pendiente. Reemplaza lo
+// que hubiera, porque es un atajo para "viene a pagar todo".
 function usarMontoSugerido() {
   var propiedadId = document.getElementById('propiedad_id').value;
   var boton = document.getElementById('btn-monto-sugerido');
@@ -79,12 +180,25 @@ function usarMontoSugerido() {
   fetch('/pagos/monto-sugerido/' + propiedadId)
     .then(function (r) { return r.json(); })
     .then(function (datos) {
-      document.getElementById('monto').value = datos.monto.toFixed(2);
-      boton.textContent = 'Usar lo que debe hoy';
+      var cont = document.getElementById('partidas');
+      cont.innerHTML = '';
+      var algo = false;
+      if (datos.mantenimiento > 0 || !datos.proyectos.length) {
+        agregarPartida('mantenimiento', datos.mantenimiento.toFixed(2));
+        algo = true;
+      }
+      datos.proyectos.forEach(function (p) {
+        agregarPartida('proyecto', p.pendiente.toFixed(2), String(p.proyecto_id));
+        algo = true;
+      });
+      boton.textContent = datos.monto > 0 ? 'Usar lo que debe hoy' : 'No debe nada hoy';
     })
     .catch(function () {
       boton.textContent = 'No se pudo calcular';
     });
 }
+
+actualizarBotonesQuitar();
+actualizarTotal();
 </script>
 {% endblock %}

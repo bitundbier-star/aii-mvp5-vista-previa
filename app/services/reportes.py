@@ -152,8 +152,12 @@ def datos_reporte(
         e["pagado_en_el_mes"] = pagado_por_propiedad.get(e["propiedad"].id, 0.0)
 
     cartera_total = round(sum(e["saldo"] for e in estado if e["saldo"] > 0), 2)
+    # Lo que algunas propiedades ya pagaron por adelantado (saldo a favor),
+    # en positivo. Es la otra cifra del reporte resumido.
+    a_favor_total = round(sum(-e["saldo"] for e in estado if e["saldo"] < -0.005), 2)
     al_corriente = sum(1 for e in estado if e["al_corriente"])
     con_adeudo = sum(1 for e in estado if not e["al_corriente"])
+    con_saldo_a_favor = sum(1 for e in estado if e["saldo"] < -0.005)
 
     ingresos_por_concepto = []
     for clave, etiqueta in CONCEPTOS_PAGO:
@@ -214,6 +218,8 @@ def datos_reporte(
         "propiedades_activas": len([p for p in conjunto.propiedades if p.activo]),
         "estado_propiedades": estado,
         "cartera_total": cartera_total,
+        "a_favor_total": a_favor_total,
+        "propiedades_con_saldo_a_favor": con_saldo_a_favor,
         "propiedades_al_corriente": al_corriente,
         "propiedades_con_adeudo": con_adeudo,
         "proyectos_en_curso": proyectos_en_curso,

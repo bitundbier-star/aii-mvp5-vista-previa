@@ -57,7 +57,7 @@ def _pagos(conjunto):
     filas = []
     for p in sorted(conjunto.pagos, key=lambda x: (x.fecha_recepcion, x.id)):
         filas.append([
-            p.folio, p.fecha_recepcion.isoformat(), p.propiedad.numero,
+            p.folio_recibo, p.folio, p.fecha_recepcion.isoformat(), p.propiedad.numero,
             p.propiedad.nombre_dueno or "", p.concepto_legible,
             p.proyecto.concepto if p.proyecto else "",
             p.metodo_pago_legible, f"{p.monto:.2f}",
@@ -65,17 +65,25 @@ def _pagos(conjunto):
             "Sí" if p.cancelado else "No",
         ])
     return _csv([
-        "Folio", "Fecha", "Propiedad", "Propietario", "Concepto", "Proyecto",
-        "Método de pago", "Monto", "Baja la deuda", "Cancelado",
+        "Folio del comprobante", "Folio de la partida", "Fecha", "Propiedad", "Propietario",
+        "Concepto", "Proyecto", "Método de pago", "Monto", "Baja la deuda", "Cancelado",
     ], filas)
 
 
 def _egresos(conjunto):
     filas = [
-        [e.fecha.isoformat(), e.concepto, f"{e.monto:.2f}"]
+        [
+            e.fecha.isoformat(), e.concepto, e.forma_pago_legible, f"{e.monto:.2f}",
+            "Sí" if e.recibo_path else "No", "Sí" if e.xml_path else "No",
+            "Sí" if e.comprobante_path else "No",
+        ]
         for e in sorted(conjunto.egresos, key=lambda x: (x.fecha, x.id))
     ]
-    return _csv(["Fecha", "Concepto", "Monto"], filas)
+    return _csv(
+        ["Fecha", "Concepto", "Forma de pago", "Monto", "Tiene recibo o factura", "Tiene XML",
+         "Tiene comprobante de pago"],
+        filas,
+    )
 
 
 def _proyectos(conjunto):
@@ -148,7 +156,7 @@ def _historial_html(conjunto) -> bytes:
  td {{ padding:7px 6px; border-bottom:1px solid #f0f0f0; }}
  .num {{ text-align:right; font-variant-numeric:tabular-nums; }}
  .saldo-debe {{ color:#b3261e; }} .saldo-favor, .saldo-cero {{ color:#0a7d3c; }}
- .nota {{ background:#eff6ff; border-left:3px solid #1d4ed8; padding:12px 16px;
+ .nota {{ background:#EAF4FB; border-left:3px solid #176BA0; padding:12px 16px;
           border-radius:0 8px 8px 0; font-size:14px; }}
  footer {{ margin-top:36px; padding-top:16px; border-top:1px solid #e5e5e5; color:#999; font-size:12px; }}
 </style></head><body>
@@ -207,6 +215,29 @@ def exportar_conjunto(conjunto) -> tuple[bytes, str]:
         z.writestr("egresos.csv", _egresos(conjunto))
         z.writestr("proyectos.csv", _proyectos(conjunto))
         z.writestr("cartera.csv", _cartera(conjunto))
+
+        # Los archivos de respaldo de cada egreso (recibo, XML, comprobante),
+        # en una carpeta por egreso. Quien se lleva el historial se lleva
+        # también las facturas.
+        from ..database import DATA_DIR
+        import os
+
+        carpeta = os.path.join(DATA_DIR, "archivos_egresos")
+        estaticos = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
+        for e in sorted(conjunto.egresos, key=lambda x: (x.fecha, x.id)):
+            for campo, etiqueta in (("recibo_path", "recibo"), ("xml_path", "xml"), ("comprobante_path", "comprobante de pago")):
+                guardado = getattr(e, campo)
+                if not guardado:
+                    continue
+                ruta = (
+                    os.path.join(estaticos, guardado)
+                    if guardado.startswith("egresos/")
+                    else os.path.join(carpeta, os.path.basename(guardado))
+                )
+                if os.path.exists(ruta):
+                    concepto = "".join(c for c in e.concepto if c.isalnum() or c in " -_").strip()[:40]
+                    destino = f"archivos_egresos/{e.fecha.isoformat()} {concepto} ({e.id})/{etiqueta}{os.path.splitext(ruta)[1]}"
+                    z.write(ruta, destino)
 
     limpio = "".join(
         c if c.isalnum() or c in " -_" else "" for c in conjunto.nombre

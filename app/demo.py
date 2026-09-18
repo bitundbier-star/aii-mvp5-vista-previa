@@ -210,14 +210,17 @@ def _sembrar(db):
             dia = azar.randint(2, 14)
             fecha = cursor.replace(day=min(dia, 28))
             conjunto.ultimo_folio += 1
+            folio_mant = f"AII-{conjunto.id:04d}-{conjunto.ultimo_folio:05d}"
+            metodo_mant = azar.choice(["efectivo", "deposito", "efectivo", "cheque"])
             db.add(models.Pago(
                 conjunto_id=conjunto.id,
                 propiedad_id=propiedad.id,
-                folio=f"AII-{conjunto.id:04d}-{conjunto.ultimo_folio:05d}",
+                folio=folio_mant,
+                recibo=folio_mant,
                 fecha_recepcion=fecha,
                 monto=round(monto, 2),
                 concepto="mantenimiento",
-                metodo_pago=azar.choice(["efectivo", "deposito", "efectivo", "cheque"]),
+                metodo_pago=metodo_mant,
             ))
 
             if indice >= 3 and perfil in ("puntual", "adelantado"):
@@ -231,16 +234,18 @@ def _sembrar(db):
                         continue
                     abono = min(falta, round(proyecto.monto_por_propiedad / 3, 2))
                     pagado_proyecto[clave] = aportado + abono
-                    conjunto.ultimo_folio += 1
+                    # Estos vecinos depositan mantenimiento y proyecto juntos:
+                    # un solo recibo con dos partidas (folio y folio-2).
                     db.add(models.Pago(
                         conjunto_id=conjunto.id,
                         propiedad_id=propiedad.id,
                         proyecto_id=proyecto.id,
-                        folio=f"AII-{conjunto.id:04d}-{conjunto.ultimo_folio:05d}",
+                        folio=f"{folio_mant}-2",
+                        recibo=folio_mant,
                         fecha_recepcion=fecha,
                         monto=abono,
                         concepto="proyecto",
-                        metodo_pago="deposito",
+                        metodo_pago=metodo_mant,
                     ))
                     break
             elif perfil == "irregular" and indice >= 4 and azar.random() < 0.4:
@@ -275,6 +280,7 @@ def _sembrar(db):
                 concepto=concepto,
                 monto=round(monto * azar.uniform(0.92, 1.08), 2),
                 fecha=cursor.replace(day=azar.randint(3, 27)),
+                forma_pago=azar.choice(["transferencia", "transferencia", "efectivo", "cheque"]),
             ))
         if azar.random() < 0.6:
             concepto, monto = azar.choice(EGRESOS_EVENTUALES)
@@ -283,6 +289,7 @@ def _sembrar(db):
                 concepto=concepto,
                 monto=monto,
                 fecha=cursor.replace(day=azar.randint(3, 27)),
+                forma_pago=azar.choice(["transferencia", "tarjeta"]),
             ))
 
         cursor = _sumar_mes(cursor)
@@ -305,6 +312,7 @@ def _sembrar(db):
         concepto="Jardinería",
         monto=1400.0,
         fecha=hoy.replace(day=min(hoy.day, 3)),
+        forma_pago="efectivo",
     ))
 
     db.flush()

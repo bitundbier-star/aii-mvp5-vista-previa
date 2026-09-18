@@ -94,7 +94,9 @@ img = s.get(f"{BASE}/comprobantes/{folio}/imagen")
 check("imagen comprobante ok", img.status_code == 200 and img.content[:4] == b"\x89PNG")
 
 # 7. Egresos: registrar uno, luego revisar que aparece en conceptos_previos
-r = s.post(f"{BASE}/egresos/nuevo", data={"concepto": "Jardinería", "monto": "500", "fecha": hoy.isoformat()})
+# (Desde la ronda 5.5 el recibo y la forma de pago son obligatorios.)
+r = s.post(f"{BASE}/egresos/nuevo", data={"concepto": "Jardinería", "monto": "500", "fecha": hoy.isoformat(), "forma_pago": "efectivo"},
+           files={"recibo": ("recibo.pdf", b"%PDF-1.4 prueba", "application/pdf")})
 r = s.get(f"{BASE}/egresos")
 check("egresos lista incluye datalist de conceptos previos", "Jardinería" in r.text and "conceptos-previos" in r.text)
 

@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% block titulo %}Comprobante {{ pago.folio }}{% endblock %}
+{% block titulo %}Comprobante {{ recibo.folio }}{% endblock %}
+{% block ancho %}angosto{% endblock %}
 {% block contenido %}
 <h1>Comprobante generado</h1>
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
   <a class="enlace" href="/pagos">← Volver a pagos</a>
-  <a class="btn pequeno" href="/pagos/nuevo">+ Registrar pago</a>
+  <a class="btn pequeno" style="margin:0;" href="/pagos/nuevo">+ Registrar pago</a>
 </div>
 
 {% if cancelado %}
@@ -14,40 +15,78 @@
 {% if error %}
 <div class="aviso error-aviso">{{ error }}</div>
 {% endif %}
-
-{% if pago.cancelado %}
-<div class="aviso" style="background:#fdecea; color:#9f1c14;">
-  <strong>Este pago está cancelado</strong>{% if pago.cancelado_en %} desde el {{ pago.cancelado_en.strftime('%d/%m/%Y %H:%M') }}{% endif %}. No cuenta para la cartera de la propiedad.
+{% if enviado_a %}
+<div class="aviso {{ 'exito' if smtp_real else 'info' }}">
+  {% if smtp_real %}
+  El comprobante (PDF e imagen) se envió a {{ enviado_a }}.
+  {% else %}
+  Modo de prueba: todavía no hay un correo real configurado, así que el comprobante para {{ enviado_a }} se guardó como vista previa en lugar de enviarse.
+  {% endif %}
 </div>
-{% elif pago.puede_cancelarse %}
+{% endif %}
+
+{% if recibo.cancelado %}
+<div class="aviso" style="background:#fdecea; color:#9f1c14;">
+  <strong>Este pago está cancelado</strong>{% if recibo.cancelado_en %} desde el {{ recibo.cancelado_en.strftime('%d/%m/%Y %H:%M') }}{% endif %}. No cuenta para la cartera de la propiedad.
+</div>
+{% elif recibo.puede_cancelarse %}
 <div class="aviso info" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-  <span>¿Este pago se registró por error? Puedes cancelarlo dentro de las primeras 48 horas.</span>
-  <form method="post" action="/pagos/{{ pago.id }}/cancelar" style="margin:0;"
-        onsubmit="return confirm('¿Cancelar el pago {{ pago.folio }} por ${{ '%.2f'|format(pago.monto) }}? La propiedad vuelve a deber ese monto. El pago no se borra: queda marcado como cancelado.')">
+  <span>¿Este pago se registró por error? Puedes cancelarlo dentro de las primeras 48 horas.{% if recibo.varias %} Se cancela el depósito completo, con todos sus conceptos.{% endif %}</span>
+  <form method="post" action="/pagos/{{ recibo.primera.id }}/cancelar" style="margin:0;"
+        onsubmit="return confirm('¿Cancelar el pago {{ recibo.folio }} por {{ recibo.total|dinero }}? La propiedad vuelve a deber ese monto. El pago no se borra: queda marcado como cancelado.')">
     <input type="hidden" name="volver" value="comprobante">
     <button type="submit" class="btn secundario pequeno">Cancelar este pago</button>
   </form>
 </div>
 {% endif %}
 
+{% if not enviado_a %}
 <div class="aviso {{ 'exito' if smtp_real else 'info' }}">
   {% if smtp_real %}
   El comprobante se envió al correo de la cuenta ({{ conjunto.cuenta_email }}){% if enviado_al_vecino %} y también al vecino{% endif %}.
   {% else %}
-  Modo de prueba: no hay un correo real configurado, así que el comprobante se guardó como vista previa en <code>data/correos_enviados/</code> en lugar de enviarse{% if enviado_al_vecino %} (tanto el de la cuenta como el del vecino){% endif %}. Ver README para conectar un correo real.
+  Modo de prueba: no hay un correo real configurado, así que el comprobante se guardó como vista previa en lugar de enviarse{% if enviado_al_vecino %} (tanto el de la cuenta como el del vecino){% endif %}.
   {% endif %}
 </div>
+{% endif %}
 
 <div class="card" style="text-align:center;">
-  <img class="comprobante-img" src="/comprobantes/{{ pago.folio }}/imagen" alt="Comprobante {{ pago.folio }}">
-  <div style="margin-top:14px;">
-    <a class="btn secundario pequeno" href="/comprobantes/{{ pago.folio }}/imagen" download="{{ pago.folio }}.png">Descargar</a>
-    <a class="btn whatsapp pequeno" target="_blank"
-       href="https://wa.me/?text={{ ('Comprobante de pago — ' ~ conjunto.nombre ~ ' — ' ~ pago.propiedad.etiqueta ~ ' — ' ~ pago.concepto_legible ~ ' — $' ~ '%.2f'|format(pago.monto) ~ ' — Folio ' ~ pago.folio) | urlencode }}">
-      Compartir por WhatsApp
-    </a>
+  <img class="comprobante-img" src="/comprobantes/{{ recibo.folio }}/imagen" alt="Comprobante {{ recibo.folio }}">
+
+  {# Celular: se comparte la IMAGEN del comprobante (no un texto) desde el
+     menú de compartir del teléfono, donde aparece WhatsApp. #}
+  <div class="solo-movil" style="margin-top:14px;">
+    <div class="acciones-compartir">
+      <button type="button" class="whatsapp" data-compartir-archivo
+              data-url="/comprobantes/{{ recibo.folio }}/imagen" data-nombre="Comprobante {{ recibo.folio }}.png"
+              data-titulo="Comprobante {{ recibo.folio }}" data-aviso="aviso-descarga-comprobante"
+              onclick="AII.compartirArchivo(this)">Compartir imagen por WhatsApp</button>
+      <a class="btn secundario" href="/comprobantes/{{ recibo.folio }}/imagen" download="Comprobante {{ recibo.folio }}.png">Descargar imagen</a>
+    </div>
+    <div class="ayuda" style="margin-top:8px;">Se abre el menú de compartir de tu teléfono con la imagen del comprobante: elige WhatsApp y el chat del vecino.</div>
+    <div class="aviso info" id="aviso-descarga-comprobante" hidden style="margin-top:10px; text-align:left;">
+      Tu navegador no permite compartir archivos directamente, así que la imagen se descargó: adjúntala en el chat de WhatsApp.
+    </div>
   </div>
-  <div class="ayuda" style="margin-top:8px;">Este botón solo abre WhatsApp con el mensaje escrito: tú eliges a quién mandárselo. Para que llegue la imagen, descárgala y adjúntala en el chat.</div>
+
+  {# Escritorio: WhatsApp Web no deja que una página le adjunte archivos, así
+     que desde la computadora el comprobante se descarga en PDF o se manda
+     directo por correo. #}
+  <div class="solo-escritorio" style="margin-top:14px;">
+    <div class="acciones-compartir">
+      <a class="btn" href="/comprobantes/{{ recibo.folio }}/pdf">Descargar PDF</a>
+      <a class="btn secundario" href="/comprobantes/{{ recibo.folio }}/imagen" download="Comprobante {{ recibo.folio }}.png">Descargar imagen</a>
+    </div>
+    <form method="post" action="/comprobantes/{{ recibo.folio }}/enviar" class="envio-correo-inline">
+      <input type="email" name="correo" list="correos-propiedad" required
+             placeholder="Enviar por correo a…" value="{{ correos_sugeridos[0].correo if correos_sugeridos else '' }}">
+      <datalist id="correos-propiedad">
+        {% for c in correos_sugeridos %}<option value="{{ c.correo }}">{{ c.quien }}</option>{% endfor %}
+      </datalist>
+      <button type="submit" class="secundario">Enviar PDF por correo</button>
+    </form>
+    <div class="ayuda" style="margin-top:8px;">Se manda el comprobante en PDF (y la imagen) al correo que escribas. {% if correos_sugeridos %}Ya viene puesto el correo registrado de la propiedad {{ recibo.propiedad.etiqueta }}.{% endif %}</div>
+  </div>
 </div>
 
 <a class="enlace" href="/pagos">← Volver a pagos</a>

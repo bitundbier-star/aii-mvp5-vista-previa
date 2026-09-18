@@ -7,6 +7,7 @@ import os
 import smtplib
 import uuid
 import datetime as dt
+import mimetypes
 from email.message import EmailMessage
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,6 +36,9 @@ def enviar_correo(destinatario: str, asunto: str, cuerpo_html: str, adjuntos: li
         ruta = os.path.join(PREVIEW_DIR, nombre)
         with open(ruta, "w", encoding="utf-8") as f:
             f.write(f"<!-- Para: {destinatario} | Asunto: {asunto} -->\n")
+            if adjuntos:
+                nombres = ", ".join(os.path.basename(a) for a in adjuntos)
+                f.write(f"<!-- Adjuntos: {nombres} -->\n")
             f.write(cuerpo_html)
         return {
             "enviado": False,
@@ -56,8 +60,10 @@ def enviar_correo(destinatario: str, asunto: str, cuerpo_html: str, adjuntos: li
         if os.path.exists(ruta_adjunto):
             with open(ruta_adjunto, "rb") as f:
                 datos = f.read()
+            tipo, _ = mimetypes.guess_type(ruta_adjunto)
+            principal, secundario = (tipo or "application/octet-stream").split("/", 1)
             msg.add_attachment(
-                datos, maintype="image", subtype="png", filename=os.path.basename(ruta_adjunto)
+                datos, maintype=principal, subtype=secundario, filename=os.path.basename(ruta_adjunto)
             )
 
     try:

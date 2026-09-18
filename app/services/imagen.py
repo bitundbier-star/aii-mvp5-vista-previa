@@ -12,15 +12,18 @@ BASE_STATIC = os.path.join(
 )
 LOGO_PATH = os.path.join(BASE_STATIC, "img", "logo-con-nombre.png")
 LOGO_ICONO_PATH = os.path.join(BASE_STATIC, "img", "logo.png")
+FUENTES_DIR = os.path.join(BASE_STATIC, "fonts")
 
 _CANDIDATAS = {
     True: [
+        os.path.join(FUENTES_DIR, "Poppins-Bold.ttf"),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
         "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
     ],
     False: [
+        os.path.join(FUENTES_DIR, "Poppins-Regular.ttf"),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSans.ttf",

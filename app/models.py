@@ -64,6 +64,17 @@ METODOS_PAGO = [
 ]
 METODOS_PAGO_DICT = dict(METODOS_PAGO)
 
+# Forma en que el conjunto le pagó a un proveedor (egresos). Es distinta de
+# METODOS_PAGO (cómo pagó un vecino): aquí sí existe la tarjeta y no el
+# depósito en ventanilla.
+FORMAS_PAGO_EGRESO = [
+    ("transferencia", "Transferencia"),
+    ("tarjeta", "Pago con tarjeta"),
+    ("efectivo", "Efectivo"),
+    ("cheque", "Cheque"),
+]
+FORMAS_PAGO_EGRESO_DICT = dict(FORMAS_PAGO_EGRESO)
+
 
 class Conjunto(Base):
     """El cliente: el conjunto habitacional en su totalidad."""
@@ -112,6 +123,11 @@ class Conjunto(Base):
     ultimo_folio = Column(Integer, nullable=False, default=0)
 
     stripe_customer_id = Column(String(120), nullable=True)
+
+    # A quién se le mandó el reporte la última vez (JSON con el modo elegido,
+    # los correos marcados uno por uno y los correos extra). Solo sirve para
+    # dejar preseleccionado lo mismo el mes siguiente.
+    reporte_destinatarios = Column(Text, nullable=True)
 
     propiedades = relationship(
         "Propiedad", back_populates="conjunto", cascade="all, delete-orphan"
@@ -253,6 +269,16 @@ class Pago(Base):
     proyecto_id = Column(Integer, ForeignKey("proyectos.id"), nullable=True)
 
     folio = Column(String(30), unique=True, nullable=False)
+
+    # Un mismo depósito puede cubrir varios conceptos (mantenimiento + gas +
+    # un proyecto). Cada concepto se guarda como su propia partida (una fila
+    # de Pago), para que cada una siga su propia regla —mantenimiento y
+    # proyecto bajan la deuda, gas no— sin tocar ningún cálculo. Lo que las
+    # une es `recibo`: el folio único del comprobante que recibe el vecino.
+    # La primera partida lleva ese mismo folio; las demás, folio-2, folio-3…
+    # Los pagos viejos no tienen `recibo` y se tratan como recibo de una sola
+    # partida (ver `folio_recibo`).
+    recibo = Column(String(30), nullable=True, index=True)
     fecha_recepcion = Column(Date, nullable=False, default=hoy)
     monto = Column(Float, nullable=False)
 
@@ -291,6 +317,10 @@ class Pago(Base):
     HORAS_LIMITE_CANCELACION = 48
 
     @property
+    def folio_recibo(self) -> str:
+        return self.recibo or self.folio
+
+    @property
     def concepto_legible(self) -> str:
         if self.concepto == "proyecto" and self.proyecto:
             return f"Proyecto: {self.proyecto.concepto}"
@@ -313,7 +343,12 @@ class Pago(Base):
 
 
 class Egreso(Base):
-    """Gasto del conjunto, con comprobante opcional como respaldo."""
+    """Gasto del conjunto.
+
+    Respaldo en tres archivos: el recibo o factura (imagen o PDF, obligatorio
+    para egresos nuevos), el XML de la factura (opcional) y el comprobante de
+    que se pagó (opcional; es lo que ya existía como `comprobante_path`).
+    """
 
     __tablename__ = "egresos"
 
@@ -322,10 +357,17 @@ class Egreso(Base):
     concepto = Column(String(200), nullable=False)
     monto = Column(Float, nullable=False)
     fecha = Column(Date, nullable=False, default=hoy)
+    forma_pago = Column(String(30), nullable=True)
+    recibo_path = Column(String(300), nullable=True)
+    xml_path = Column(String(300), nullable=True)
     comprobante_path = Column(String(300), nullable=True)
     creado_en = Column(DateTime, nullable=False, default=ahora)
 
     conjunto = relationship("Conjunto", back_populates="egresos")
+
+    @property
+    def forma_pago_legible(self) -> str:
+        return FORMAS_PAGO_EGRESO_DICT.get(self.forma_pago or "", "")
 
 
 class MontoMensual(Base):
