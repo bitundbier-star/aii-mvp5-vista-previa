@@ -137,7 +137,7 @@ def _sembrar(db):
     conjunto = models.Conjunto(
         nombre=DEMO_NOMBRE,
         direccion="Av. de las Jacarandas 45, Col. Ejemplo, Ciudad de México",
-        admin_nombre="Sofía Bellinghausen",
+        admin_nombre="Ana García López",
         login_email=DEMO_EMAIL,
         password_hash=bcrypt.hash(DEMO_PASSWORD),
         cuenta_email="cuenta.jacarandas@ejemplo.com",

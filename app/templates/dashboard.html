@@ -3,20 +3,34 @@
 {% block contenido %}
 <h1>Hola, {{ conjunto.admin_nombre }}</h1>
 
+{% if conjunto.stripe_status == "trialing" and conjunto.prueba_hasta %}
+{% set dias = (conjunto.prueba_hasta - hoy_fecha).days %}
+<div class="aviso {{ 'error-aviso' if dias <= 5 else 'info' }}">
+  {% if dias > 0 %}
+  Tu periodo de prueba gratuito termina en <strong>{{ dias }} día{{ 's' if dias != 1 }}</strong> ({{ conjunto.prueba_hasta.strftime('%d/%m/%Y') }}).
+  <a class="enlace" href="/pago">Suscribirse ahora →</a>
+  {% elif dias == 0 %}
+  <strong>Tu periodo de prueba termina hoy.</strong> <a class="enlace" href="/pago">Suscribirse para continuar →</a>
+  {% else %}
+  <strong>Tu periodo de prueba venció.</strong> Suscríbete para seguir usando la plataforma. <a class="enlace" href="/pago">Suscribirse →</a>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if not smtp_real %}
-<div class="aviso info">Modo de prueba: no hay un correo real configurado, así que los correos (comprobantes, avisos de egresos y reportes) se guardan como vista previa en <code>data/correos_enviados/</code> en lugar de enviarse. Ver README para conectar un correo real.</div>
+<div class="aviso info">Modo de prueba: los correos se guardan como vista previa en lugar de enviarse. Configura SMTP en Render para activarlos.</div>
 {% endif %}
 
 {% if fichas_incompletas %}
 <div class="aviso">
-  Faltan los datos del propietario en {{ fichas_incompletas|length }} propiedad{{ 'es' if fichas_incompletas|length != 1 else '' }}.
+  Faltan datos del propietario en {{ fichas_incompletas|length }} propiedad{{ 'es' if fichas_incompletas|length != 1 }}.
   <a class="enlace" href="/propiedades">Completarlos ahora</a>
 </div>
 {% endif %}
 
 {% if revision_pendiente %}
 <div class="aviso">
-  <strong>¿Tu monto mensual de ${{ '%.2f'|format(conjunto.monto_mensual) }} sigue vigente?</strong>
+  <strong>¿Tu monto mensual de {{ conjunto.monto_mensual|dinero }} sigue vigente?</strong>
   <form method="post" action="/monto/confirmar" style="display:inline">
     <button type="submit" class="pequeno secundario">Sigue igual</button>
   </form>
@@ -27,20 +41,71 @@
 </div>
 {% endif %}
 
-<div class="grid-stats">
-  <div class="stat positivo"><div class="valor">{{ resumen.saldo_acumulado|dinero }}</div><div class="etiqueta">Saldo acumulado del conjunto</div></div>
-  <div class="stat"><div class="valor">{{ resumen.ingresos_mes|dinero }}</div><div class="etiqueta">Ingresos del mes</div></div>
-  <div class="stat"><div class="valor">{{ resumen.egresos_mes|dinero }}</div><div class="etiqueta">Egresos del mes</div></div>
-  <div class="stat {{ 'negativo' if resumen.cartera_total > 0 else 'positivo' }}"><div class="valor">{{ resumen.cartera_total|dinero }}</div><div class="etiqueta">Cartera por cobrar</div></div>
-  <div class="stat"><div class="valor">{{ resumen.propiedades_al_corriente }}/{{ resumen.propiedades_al_corriente + resumen.propiedades_con_adeudo }}</div><div class="etiqueta">Propiedades al corriente</div></div>
+<div class="card" style="margin-top:4px;">
+  <h2 style="margin-top:0; font-size:15px; color:#666;">Accesos rápidos</h2>
+  <div style="display:flex; flex-wrap:wrap; gap:8px;">
+    <a class="btn pequeno" style="margin:0;" href="/pagos/nuevo">+ Registrar pago</a>
+    <a class="btn pequeno secundario" style="margin:0;" href="/egresos">+ Registrar egreso</a>
+    <a class="btn pequeno secundario" style="margin:0;" href="/cartera">Ver cartera</a>
+    <a class="btn pequeno secundario" style="margin:0;" href="/reporte">Ver reporte</a>
+    <a class="btn pequeno secundario" style="margin:0;" href="/proyectos">Proyectos</a>
+  </div>
 </div>
-<p class="ayuda">El mantenimiento de este mes vence el día {{ conjunto.fecha_limite_pago }}. Hasta entonces no cuenta como adeudo. «Al corriente» incluye a quien no debe nada y a quien pagó por adelantado.</p>
 
-<div class="card">
-  <h2 style="margin-top:0">Accesos rápidos</h2>
-  <a class="btn" href="/pagos/nuevo">+ Registrar pago</a>
-  <a class="btn secundario" href="/egresos">+ Registrar egreso</a>
-  <a class="btn secundario" href="/cartera">Ver cartera</a>
-  <a class="btn secundario" href="/reporte">Ver reporte</a>
+{# Tarjetas del saldo — al dar clic van al desglose completo #}
+<a href="/dashboard/desglose" style="text-decoration:none; color:inherit;">
+<div class="grid-stats" style="cursor:pointer;" title="Ver desglose completo">
+  <div class="stat positivo">
+    <div class="valor">{{ resumen.saldo_acumulado|dinero }}</div>
+    <div class="etiqueta">Saldo acumulado del conjunto ↗</div>
+  </div>
+  <div class="stat">
+    <div class="valor">{{ resumen.ingresos_mes|dinero }}</div>
+    <div class="etiqueta">Ingresos del mes ↗</div>
+  </div>
+  <div class="stat">
+    <div class="valor">{{ resumen.egresos_mes|dinero }}</div>
+    <div class="etiqueta">Egresos del mes ↗</div>
+  </div>
+  <div class="stat {{ 'negativo' if resumen.cartera_total > 0 else 'positivo' }}">
+    <div class="valor">{{ resumen.cartera_total|dinero }}</div>
+    <div class="etiqueta">Cartera por cobrar</div>
+  </div>
+  <div class="stat">
+    <div class="valor">{{ resumen.propiedades_al_corriente }}/{{ resumen.propiedades_al_corriente + resumen.propiedades_con_adeudo }}</div>
+    <div class="etiqueta">Propiedades al corriente</div>
+  </div>
 </div>
+</a>
+<p class="ayuda">El mantenimiento de este mes vence el día {{ conjunto.fecha_limite_pago }}. Da clic en las tarjetas para ver el desglose completo.</p>
+
+{# Desglose del saldo acumulado #}
+{% if resumen.etiquetado_proyectos %}
+<div class="card" style="margin-top:8px;">
+  <h2 style="margin-top:0; font-size:15px;">Desglose del saldo acumulado</h2>
+  <div class="resumen-cartera" style="grid-template-columns: 1fr 1fr;">
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Saldo libre (disponible)</div>
+      <div class="saldo-cifra {{ 'saldo-favor' if resumen.saldo_libre >= 0 else 'saldo-debe' }}" style="font-size:22px; font-weight:700;">{{ resumen.saldo_libre|dinero }}</div>
+    </div>
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Etiquetado para proyectos</div>
+      <div class="saldo-cifra" style="font-size:22px; font-weight:700; color:var(--azul);">{{ resumen.total_etiquetado|dinero }}</div>
+    </div>
+  </div>
+  <table style="margin-top:10px;">
+    <tr><th>Proyecto</th><th class="num">Recaudado</th><th class="num">Meta</th><th class="num">Avance</th></tr>
+    {% for p in resumen.etiquetado_proyectos %}
+    <tr>
+      <td>{{ p.nombre }}</td>
+      <td class="num">{{ p.recaudado|dinero }}</td>
+      <td class="num">{{ p.monto_total|dinero }}</td>
+      <td class="num">{{ p.avance }}%</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<p class="ayuda">«Al corriente» incluye a quien no debe nada y a quien pagó por adelantado.</p>
 {% endblock %}

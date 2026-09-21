@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block titulo %}Pagos — {{ proyecto.concepto }}{% endblock %}
+{% block contenido %}
+<div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:12px;">
+  <h1 style="margin:0;">{{ proyecto.concepto }}</h1>
+  <a class="btn secundario pequeno" style="margin:0;" href="/proyectos">← Proyectos</a>
+</div>
+
+<div class="grid-stats">
+  <div class="stat positivo"><div class="valor">{{ total_pagado|dinero }}</div><div class="etiqueta">Total recaudado</div></div>
+  <div class="stat negativo"><div class="valor">{{ total_pendiente|dinero }}</div><div class="etiqueta">Total pendiente</div></div>
+  <div class="stat"><div class="valor">{{ proyecto.monto_total|dinero }}</div><div class="etiqueta">Meta del proyecto</div></div>
+  <div class="stat"><div class="valor">{{ proyecto.monto_por_propiedad|dinero }}</div><div class="etiqueta">Por propiedad</div></div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <table>
+    <tr><th>Propiedad</th><th>Propietario</th><th class="num">Pagado</th><th class="num">Pendiente</th><th>Estado</th></tr>
+    {% for f in filas %}
+    <tr>
+      <td class="nowrap">{{ f.propiedad.etiqueta }}</td>
+      <td>{{ f.propiedad.nombre_dueno or '—' }}</td>
+      <td class="num">{{ f.pagado|dinero }}</td>
+      <td class="num {{ 'saldo-debe' if f.pendiente > 0 }}">{{ f.pendiente|dinero }}</td>
+      <td>
+        {% if f.completo %}
+        <span class="etiqueta-saldo saldo-favor">✓ Pagado</span>
+        {% elif f.pagado > 0 %}
+        <span class="etiqueta-saldo saldo-neutro">Parcial</span>
+        {% else %}
+        <span class="etiqueta-saldo saldo-debe">Sin pago</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    <tr class="fila-total">
+      <td colspan="2">Total</td>
+      <td class="num">{{ total_pagado|dinero }}</td>
+      <td class="num saldo-debe">{{ total_pendiente|dinero }}</td>
+      <td></td>
+    </tr>
+  </table>
+</div>
+{% endblock %}

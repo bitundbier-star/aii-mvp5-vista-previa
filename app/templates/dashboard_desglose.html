@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block titulo %}Desglose financiero{% endblock %}
+{% block contenido %}
+<div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:16px;">
+  <h1 style="margin:0;">Desglose financiero</h1>
+  <a class="btn secundario pequeno" style="margin:0;" href="/dashboard">← Volver a Inicio</a>
+</div>
+<p class="ayuda">Cifras al día de hoy, con el mes en curso todavía abierto.</p>
+
+{# 1. Saldo acumulado #}
+<div class="card">
+  <h2 style="margin-top:0;">Saldo acumulado del conjunto</h2>
+  <div class="resumen-cartera">
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Total acumulado</div>
+      <div class="saldo-cifra saldo-favor" style="font-size:28px; font-weight:700;">{{ resumen.saldo_acumulado|dinero }}</div>
+    </div>
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Saldo libre (disponible)</div>
+      <div class="saldo-cifra {{ 'saldo-favor' if resumen.saldo_libre >= 0 else 'saldo-debe' }}" style="font-size:28px; font-weight:700;">{{ resumen.saldo_libre|dinero }}</div>
+    </div>
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Etiquetado para proyectos</div>
+      <div class="saldo-cifra" style="font-size:24px; font-weight:700; color:var(--azul);">{{ resumen.total_etiquetado|dinero }}</div>
+    </div>
+  </div>
+  {% if resumen.etiquetado_proyectos %}
+  <table style="margin-top:14px;">
+    <tr><th>Proyecto activo</th><th class="num">Recaudado</th><th class="num">Meta total</th><th class="num">Avance</th></tr>
+    {% for p in resumen.etiquetado_proyectos %}
+    <tr>
+      <td><a class="enlace" href="/proyectos/{{ p.proyecto_id }}/pagos">{{ p.nombre }}</a></td>
+      <td class="num">{{ p.recaudado|dinero }}</td>
+      <td class="num">{{ p.monto_total|dinero }}</td>
+      <td class="num">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="background:#e5e7eb; border-radius:4px; height:8px; width:80px; overflow:hidden;">
+            <div style="background:var(--azul); height:100%; width:{{ p.avance }}%;"></div>
+          </div>
+          {{ p.avance }}%
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="ayuda" style="margin-top:10px;">No hay proyectos activos con fondos etiquetados. Todo el saldo está disponible.</p>
+  {% endif %}
+</div>
+
+{# 2. Ingresos del mes #}
+<div class="card" style="margin-top:16px;">
+  <h2 style="margin-top:0;">Ingresos del mes — <strong>{{ resumen.ingresos_mes|dinero }}</strong></h2>
+  {% if resumen.ingresos_desglose %}
+  <table>
+    <tr><th>Concepto</th><th class="num">Monto</th><th class="num">%</th></tr>
+    {% for d in resumen.ingresos_desglose %}
+    <tr>
+      <td>{{ d.concepto }}</td>
+      <td class="num">{{ d.monto|dinero }}</td>
+      <td class="num">{{ ((d.monto / resumen.ingresos_mes * 100) | round(1)) if resumen.ingresos_mes else 0 }}%</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="ayuda">Todavía no hay ingresos registrados este mes.</p>
+  {% endif %}
+  <p class="ayuda" style="margin-top:8px;">Solo Mantenimiento y Proyecto reducen la deuda de las propiedades. Gas, Agua y Otros entran al saldo del conjunto pero no bajan la cartera.</p>
+</div>
+
+{# 3. Egresos del mes #}
+<div class="card" style="margin-top:16px;">
+  <h2 style="margin-top:0;">Egresos del mes — <strong>{{ resumen.egresos_mes|dinero }}</strong></h2>
+  {% if resumen.egresos_desglose %}
+  <table>
+    <tr><th>Concepto</th><th class="num">Monto</th><th class="num">%</th></tr>
+    {% for d in resumen.egresos_desglose %}
+    <tr>
+      <td>{{ d.concepto }}</td>
+      <td class="num">{{ d.monto|dinero }}</td>
+      <td class="num">{{ ((d.monto / resumen.egresos_mes * 100) | round(1)) if resumen.egresos_mes else 0 }}%</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="ayuda">Todavía no hay egresos registrados este mes.</p>
+  {% endif %}
+</div>
+
+{# 4. Cartera por cobrar #}
+<div class="card" style="margin-top:16px;">
+  <h2 style="margin-top:0;">Cartera por cobrar — <strong class="saldo-debe">{{ resumen.cartera_total|dinero }}</strong></h2>
+  <div class="resumen-cartera">
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Propiedades al corriente</div>
+      <div style="font-size:24px; font-weight:700; color:#0a7d3c;">{{ resumen.propiedades_al_corriente }}</div>
+    </div>
+    <div class="saldo-caja">
+      <div class="saldo-etiqueta">Propiedades con adeudo</div>
+      <div style="font-size:24px; font-weight:700; color:#b3261e;">{{ resumen.propiedades_con_adeudo }}</div>
+    </div>
+  </div>
+  <p class="ayuda" style="margin-top:10px;">El detalle por propiedad está en <a class="enlace" href="/cartera">Cartera</a>.</p>
+</div>
+
+<p style="margin-top:16px;"><a class="enlace" href="/dashboard">← Volver a Inicio</a></p>
+{% endblock %}

@@ -244,9 +244,9 @@ def generar_pdf_reporte(conjunto, reporte: dict, version: str = "detalle") -> by
     else:
         nota(f"No se registró ningún egreso en {reporte['periodo']}.")
 
-    # --- De dónde vino el dinero --------------------------------------------
+    # --- Ingresos del mes y su destino --------------------------------------------
     if reporte["ingresos_por_concepto"]:
-        titulo("De dónde vino el dinero")
+        titulo("Ingresos del mes y su destino")
         anchos = [ancho * 0.7, ancho * 0.3]
         filas = [[(i["concepto"], None), (dinero(i["monto"]), None)] for i in reporte["ingresos_por_concepto"]]
         tabla(["Concepto", "Monto"], anchos, filas, ["L", "R"],

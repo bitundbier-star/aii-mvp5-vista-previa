@@ -123,6 +123,17 @@ class Conjunto(Base):
     ultimo_folio = Column(Integer, nullable=False, default=0)
 
     stripe_customer_id = Column(String(120), nullable=True)
+    stripe_subscription_id = Column(String(120), nullable=True)
+    stripe_status = Column(String(30), nullable=True)   # "trialing"|"active"|"past_due"|"canceled"
+    prueba_hasta = Column(Date, nullable=True)           # fin del periodo de prueba gratuito
+    cupon_usado = Column(String(60), nullable=True)      # código de cupón que se aplicó al registrarse
+
+    # Mensajes de recordatorio personalizables (uno por cada momento)
+    recordatorio_msg_10d = Column(Text, nullable=True)
+    recordatorio_msg_3d  = Column(Text, nullable=True)
+    recordatorio_msg_dia = Column(Text, nullable=True)
+    recordatorio_msg_vencido = Column(Text, nullable=True)
+
 
     # A quién se le mandó el reporte la última vez (JSON con el modo elegido,
     # los correos marcados uno por uno y los correos extra). Solo sirve para
@@ -257,6 +268,15 @@ class Proyecto(Base):
     estado = Column(String(30), nullable=False, default="por_iniciar")
     comentario_estado = Column(Text, nullable=True)
 
+    # Cómo se va a financiar el proyecto
+    # "fondo" = 100% del fondo, "mixto" = fondo + cuota extraordinaria,
+    # "cuota" = 100% cuota extraordinaria
+    financiamiento = Column(String(20), nullable=True)
+    financiamiento_pct_fondo = Column(Float, nullable=True)  # % del fondo en modo mixto (0-100)
+
+    # Fecha en que se marcó como terminado
+    terminado_en = Column(DateTime, nullable=True)
+
     # Cancelación
     cancelado = Column(Boolean, nullable=False, default=False)
     cancelado_en = Column(DateTime, nullable=True)
@@ -306,6 +326,7 @@ class Pago(Base):
     monto = Column(Float, nullable=False)
 
     concepto = Column(String(30), nullable=False, default="mantenimiento")
+    concepto_descripcion = Column(String(200), nullable=True)  # para cuando concepto == "otros"
 
     metodo_pago = Column(String(30), nullable=False, default="efectivo")
 
@@ -345,6 +366,8 @@ class Pago(Base):
 
     @property
     def concepto_legible(self) -> str:
+        if self.concepto == "otros" and self.concepto_descripcion:
+            return self.concepto_descripcion
         if self.concepto == "proyecto" and self.proyecto:
             return f"Proyecto: {self.proyecto.concepto}"
         return CONCEPTOS_PAGO_DICT.get(self.concepto, "Otros")
@@ -409,6 +432,39 @@ class MontoMensual(Base):
 
     conjunto = relationship("Conjunto", back_populates="historial_montos")
 
+
+
+class Cupon(Base):
+    """Cupón de descuento que Sofía puede crear desde el Panel Maestro."""
+
+    __tablename__ = "cupones"
+
+    id = Column(Integer, primary_key=True)
+    codigo = Column(String(60), unique=True, nullable=False, index=True)
+    descuento_tipo = Column(String(20), nullable=False, default="porcentaje")  # "porcentaje"|"monto"
+    descuento_valor = Column(Float, nullable=False)   # % o MXN según tipo
+    usos_maximos = Column(Integer, nullable=True)      # None = ilimitado
+    usos_actuales = Column(Integer, nullable=False, default=0)
+    valido_hasta = Column(Date, nullable=True)         # None = sin vencimiento
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime, nullable=False, default=ahora)
+
+    @property
+    def disponible(self) -> bool:
+        from datetime import date
+        if not self.activo:
+            return False
+        if self.usos_maximos and self.usos_actuales >= self.usos_maximos:
+            return False
+        if self.valido_hasta and date.today() > self.valido_hasta:
+            return False
+        return True
+
+    @property
+    def descuento_legible(self) -> str:
+        if self.descuento_tipo == "porcentaje":
+            return f"{self.descuento_valor:.0f}%"
+        return f"${self.descuento_valor:,.2f} MXN"
 
 class CambioAdministrador(Base):
     """Bitácora de traspasos de liderazgo (Fase 3)."""

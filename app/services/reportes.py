@@ -242,20 +242,61 @@ def datos_reporte(
     }
 
 
-def resumen_actual(conjunto: Conjunto, al_dia: dt.date | None = None) -> dict:
+def resumen_actual(conjunto: Conjunto, al_dia: dt.date | None = None) -> dict:  # noqa: C901
     """Cifras de hoy para la pantalla de Inicio. No es el reporte: es el estado
     del conjunto en este momento, con el mes en curso todavía abierto."""
     al_dia = al_dia or dt.date.today()
     estado = estado_conjunto(conjunto, al_dia)
     inicio_mes = al_dia.replace(day=1)
+    # --- Desglose del saldo acumulado ---
+    # Cuánto de ese dinero ya está etiquetado a un proyecto activo
+    proyectos_activos = [pr for pr in conjunto.proyectos if pr.en_curso and not pr.cancelado]
+    etiquetado_proyectos = [
+        {
+            "proyecto_id": pr.id,
+            "nombre": pr.concepto,
+            "recaudado": pr.total_recaudado,
+            "monto_total": pr.monto_total,
+            "avance": min(round(pr.total_recaudado / pr.monto_total * 100) if pr.monto_total else 0, 100),
+        }
+        for pr in proyectos_activos
+    ]
+    total_etiquetado = round(sum(d["recaudado"] for d in etiquetado_proyectos), 2)
+    saldo_acum = saldo_acumulado(conjunto, al_dia)
+    saldo_libre = round(saldo_acum - total_etiquetado, 2)
+
+    # --- Desglose de ingresos del mes por concepto ---
+    pagos_mes = [p for p in conjunto.pagos if p.fecha_recepcion >= inicio_mes and not p.cancelado]
+    ingresos_por_concepto: dict[str, float] = {}
+    for p in pagos_mes:
+        etiqueta = p.concepto_legible
+        if p.concepto == "otros" and p.concepto_descripcion:
+            etiqueta = p.concepto_descripcion
+        ingresos_por_concepto[etiqueta] = round(ingresos_por_concepto.get(etiqueta, 0.0) + p.monto, 2)
+    ingresos_desglose = [
+        {"concepto": k, "monto": v}
+        for k, v in sorted(ingresos_por_concepto.items(), key=lambda x: -x[1])
+    ]
+
+    # --- Desglose de egresos del mes por concepto ---
+    egresos_mes_lista = [e for e in conjunto.egresos if e.fecha >= inicio_mes]
+    egresos_por_concepto: dict[str, float] = {}
+    for e in egresos_mes_lista:
+        egresos_por_concepto[e.concepto] = round(egresos_por_concepto.get(e.concepto, 0.0) + e.monto, 2)
+    egresos_desglose = [
+        {"concepto": k, "monto": v}
+        for k, v in sorted(egresos_por_concepto.items(), key=lambda x: -x[1])
+    ]
+
     return {
-        "saldo_acumulado": saldo_acumulado(conjunto, al_dia),
-        "ingresos_mes": round(
-            sum(p.monto for p in conjunto.pagos if p.fecha_recepcion >= inicio_mes and not p.cancelado), 2
-        ),
-        "egresos_mes": round(
-            sum(e.monto for e in conjunto.egresos if e.fecha >= inicio_mes), 2
-        ),
+        "saldo_acumulado": saldo_acum,
+        "saldo_libre": saldo_libre,
+        "etiquetado_proyectos": etiquetado_proyectos,
+        "total_etiquetado": total_etiquetado,
+        "ingresos_mes": round(sum(p.monto for p in pagos_mes), 2),
+        "ingresos_desglose": ingresos_desglose,
+        "egresos_mes": round(sum(e.monto for e in egresos_mes_lista), 2),
+        "egresos_desglose": egresos_desglose,
         "cartera_total": round(sum(e["saldo"] for e in estado if e["saldo"] > 0), 2),
         "propiedades_al_corriente": sum(1 for e in estado if e["al_corriente"]),
         "propiedades_con_adeudo": sum(1 for e in estado if not e["al_corriente"]),

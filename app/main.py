@@ -20,6 +20,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from .database import Base, engine, get_db, DATA_DIR, asegurar_columnas_nuevas
 from . import models
+from .models import Cupon
 from .models import (
     TIPOS_PROPIEDAD,
     TIPOS_PROPIEDAD_DICT,
@@ -52,6 +53,7 @@ from .services.reportes import (
 )
 from .services.imagen_reporte import generar_imagen_reporte, periodo_en_espanol
 from .services.pdf_reporte import generar_pdf_reporte, nombre_archivo_pdf
+from .services.recordatorios import ejecutar_recordatorios
 from .services.pagos_stripe import iniciar_actualizacion_metodo_pago
 from .demo import MODO_DEMO, DEMO_EMAIL, DEMO_PASSWORD, DEMO_NOMBRE, sembrar_si_hace_falta
 
@@ -417,6 +419,19 @@ def restablecer_submit(
 # Dashboard
 # ---------------------------------------------------------------------------
 
+@app.get("/dashboard/desglose", response_class=HTMLResponse)
+def dashboard_desglose(
+    request: Request,
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Dashboard interno con el desglose del saldo, ingresos y egresos."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    resumen = resumen_actual(conjunto)
+    return tpl(request, "dashboard_desglose.html", conjunto=conjunto, resumen=resumen)
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
     if not conjunto:
@@ -433,6 +448,7 @@ def dashboard(request: Request, conjunto=Depends(requerir_login), db: Session = 
         "dashboard.html",
         conjunto=conjunto,
         resumen=resumen,
+        hoy_fecha=dt.date.today(),
         hay_reporte=hay_reporte_disponible(conjunto),
         revision_pendiente=conjunto.revision_monto_pendiente(),
         smtp_real=modo_real_configurado(),
@@ -881,6 +897,7 @@ def pago_nuevo_submit(
     propiedad_id: int = Form(...),
     fecha_recepcion: str = Form(...),
     concepto: list[str] = Form(...),
+    concepto_descripcion: list[str] = Form([]),
     monto: list[str] = Form(...),
     proyecto_id: list[str] = Form([]),
     metodo_pago: str = Form(...),
@@ -910,6 +927,7 @@ def pago_nuevo_submit(
     # Cada renglón del formulario es una partida: concepto + monto (+ el
     # proyecto, si el concepto es Proyecto). Los renglones vacíos se ignoran.
     proyectos_ids = list(proyecto_id) + [""] * (len(concepto) - len(proyecto_id))
+    descs = list(concepto_descripcion) + [""] * len(concepto)
     partidas = []
     error = None
     for i, (c, m) in enumerate(zip(concepto, monto)):
@@ -955,6 +973,7 @@ def pago_nuevo_submit(
             and conjunto.cargo_del_mes_es_exigible(fecha_pago.year, fecha_pago.month, fecha_pago)
         )
         monto_base = conjunto.monto_vigente_en(fecha_pago) if incluye_recargo else None
+        desc = descs[n-1].strip() if n-1 < len(descs) else ""
         pago = models.Pago(
             conjunto_id=conjunto.id,
             propiedad_id=propiedad.id,
@@ -964,6 +983,7 @@ def pago_nuevo_submit(
             fecha_recepcion=fecha_pago,
             monto=valor,
             concepto=c,
+            concepto_descripcion=desc if c == "otros" and desc else None,
             metodo_pago=metodo_pago,
             incluye_recargo_tardio=incluye_recargo,
             monto_base_snapshot=monto_base,
@@ -1178,6 +1198,8 @@ async def proyecto_nuevo(
     fecha_limite_pago: str = Form(""),
     estado: str = Form("por_iniciar"),
     comentario_estado: str = Form(""),
+    financiamiento: str = Form("fondo"),
+    financiamiento_pct_fondo: str = Form(""),
     cot1: UploadFile | None = File(None),
     cot1_proveedor: str = Form(""),
     cot1_monto: str = Form(""),
@@ -1199,6 +1221,8 @@ async def proyecto_nuevo(
         except ValueError:
             return None
 
+    pct_fondo = _monto_cot(financiamiento_pct_fondo)
+
     proyecto = models.Proyecto(
         conjunto_id=conjunto.id,
         concepto=concepto,
@@ -1212,6 +1236,8 @@ async def proyecto_nuevo(
         else None,
         estado=estado,
         comentario_estado=comentario_estado or None,
+        financiamiento=financiamiento or None,
+        financiamiento_pct_fondo=pct_fondo,
         cot1_proveedor=cot1_proveedor or None,
         cot1_monto=_monto_cot(cot1_monto),
         cot2_proveedor=cot2_proveedor or None,
@@ -1327,6 +1353,46 @@ def proyecto_eliminar(
     db.commit()
     return RedirectResponse("/proyectos", status_code=302)
 
+
+
+@app.get("/proyectos/{proyecto_id}/pagos", response_class=HTMLResponse)
+def proyecto_pagos_lista(
+    proyecto_id: int,
+    request: Request,
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Quién ha pagado su cuota de este proyecto y quién no."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
+    if not proyecto:
+        return RedirectResponse("/proyectos", status_code=302)
+
+    pagado_por = {}
+    for p in proyecto.pagos:
+        if not p.cancelado:
+            pagado_por[p.propiedad_id] = round(pagado_por.get(p.propiedad_id, 0.0) + p.monto, 2)
+
+    filas = []
+    for prop in sorted(conjunto.propiedades, key=orden_natural):
+        if not prop.activo:
+            continue
+        pagado = pagado_por.get(prop.id, 0.0)
+        pendiente = round(max(proyecto.monto_por_propiedad - pagado, 0.0), 2)
+        filas.append({
+            "propiedad": prop,
+            "pagado": pagado,
+            "pendiente": pendiente,
+            "completo": pendiente <= 0.005,
+        })
+
+    return tpl(
+        request, "proyecto_pagos.html",
+        conjunto=conjunto, proyecto=proyecto, filas=filas,
+        total_pagado=round(sum(f["pagado"] for f in filas), 2),
+        total_pendiente=round(sum(f["pendiente"] for f in filas), 2),
+    )
 
 
 @app.get("/proyectos/{proyecto_id}/cancelar", response_class=HTMLResponse)
@@ -1521,6 +1587,149 @@ async def proyecto_cancelar_confirmar(
 
     db.commit()
     return RedirectResponse("/proyectos?cancelado=1", status_code=302)
+
+
+@app.get("/registro/validar-cupon")
+def validar_cupon(codigo: str = "", db: Session = Depends(get_db)):
+    """Valida un código de cupón en tiempo real (llamado por JS en el registro)."""
+    if not codigo.strip():
+        return {"valido": False, "mensaje": ""}
+    cupon = db.query(Cupon).filter_by(codigo=codigo.strip().upper()).first()
+    if not cupon or not cupon.disponible:
+        return {"valido": False, "mensaje": "Código no válido o ya vencido."}
+    return {
+        "valido": True,
+        "mensaje": f"✓ Descuento de {cupon.descuento_legible} aplicado.",
+        "descuento": cupon.descuento_legible,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stripe
+# ---------------------------------------------------------------------------
+import stripe as stripe_lib
+
+stripe_lib.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID_BASICO", "")
+STRIPE_PUB_KEY  = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+PERIODO_PRUEBA_DIAS = 30
+
+def _precio_con_cupon(precio_base: float, cupon) -> float:
+    if not cupon:
+        return precio_base
+    if cupon.descuento_tipo == "porcentaje":
+        return round(precio_base * (1 - cupon.descuento_valor / 100), 2)
+    return max(0.0, round(precio_base - cupon.descuento_valor, 2))
+
+
+@app.get("/pago", response_class=HTMLResponse)
+def pago_form(
+    request: Request,
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Pantalla de suscripción para conjuntos en periodo de prueba o sin pago activo."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return tpl(request, "pago.html", conjunto=conjunto,
+               stripe_pub_key=STRIPE_PUB_KEY, precio=500,
+               error=request.query_params.get("error"))
+
+
+@app.post("/pago/checkout")
+def pago_checkout(
+    request: Request,
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Crea una sesión de Stripe Checkout y redirige ahí."""
+    if not conjunto or not stripe_lib.api_key or not STRIPE_PRICE_ID:
+        return RedirectResponse("/dashboard", status_code=302)
+    try:
+        session = stripe_lib.checkout.Session.create(
+            customer_email=conjunto.login_email,
+            payment_method_types=["card"],
+            line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+            mode="subscription",
+            success_url=str(request.base_url) + "pago/exito?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=str(request.base_url) + "pago?error=cancelado",
+            metadata={"conjunto_id": str(conjunto.id)},
+        )
+        return RedirectResponse(session.url, status_code=303)
+    except Exception as e:
+        return RedirectResponse(f"/pago?error={urllib.parse.quote(str(e))}", status_code=302)
+
+
+@app.get("/pago/exito", response_class=HTMLResponse)
+def pago_exito(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return tpl(request, "pago_exito.html", conjunto=conjunto)
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Webhook de Stripe: activa o suspende cuentas según el estado del pago."""
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        if STRIPE_WEBHOOK_SECRET:
+            event = stripe_lib.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+        else:
+            event = stripe_lib.Event.construct_from(
+                stripe_lib.util.convert_to_stripe_object(
+                    __import__("json").loads(payload), stripe_lib.api_key, None
+                ),
+                stripe_lib.api_key,
+            )
+    except Exception:
+        return Response(status_code=400)
+
+    obj = event["data"]["object"]
+
+    if event["type"] == "checkout.session.completed":
+        cid = obj.get("metadata", {}).get("conjunto_id")
+        if cid:
+            c = db.query(models.Conjunto).filter_by(id=int(cid)).first()
+            if c:
+                c.stripe_customer_id = obj.get("customer")
+                c.stripe_subscription_id = obj.get("subscription")
+                c.stripe_status = "active"
+                c.prueba_hasta = None
+                db.commit()
+
+    elif event["type"] in ("customer.subscription.deleted", "invoice.payment_failed"):
+        sub_id = obj.get("id") if event["type"] == "customer.subscription.deleted" else obj.get("subscription")
+        if sub_id:
+            c = db.query(models.Conjunto).filter_by(stripe_subscription_id=sub_id).first()
+            if c:
+                c.stripe_status = "canceled" if "deleted" in event["type"] else "past_due"
+                db.commit()
+
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Recordatorios automáticos (llamado por el cron job de Render cada día)
+# ---------------------------------------------------------------------------
+
+RECORDATORIO_SECRET = os.environ.get("RECORDATORIO_SECRET", "")
+
+@app.post("/recordatorios/ejecutar")
+def recordatorios_ejecutar(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Endpoint que llama el cron job de Render cada día a las 9 AM CDMX.
+
+    Protegido con un secret para que no lo pueda llamar cualquiera.
+    """
+    token = request.headers.get("X-Recordatorio-Secret", "")
+    if RECORDATORIO_SECRET and token != RECORDATORIO_SECRET:
+        return Response(status_code=401)
+    resultado = ejecutar_recordatorios(db)
+    return resultado
 
 
 # ---------------------------------------------------------------------------
@@ -2328,15 +2537,23 @@ def configuracion_monto_tardio(
 
 
 @app.post("/configuracion/recordatorios")
-def configuracion_recordatorios(
+async def configuracion_recordatorios(
     request: Request,
     recordatorios_activos: str = Form(""),
+    recordatorio_msg_10d: str = Form(""),
+    recordatorio_msg_3d: str = Form(""),
+    recordatorio_msg_dia: str = Form(""),
+    recordatorio_msg_vencido: str = Form(""),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
 ):
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     conjunto.recordatorios_activos = recordatorios_activos == "1"
+    conjunto.recordatorio_msg_10d = recordatorio_msg_10d.strip() or None
+    conjunto.recordatorio_msg_3d = recordatorio_msg_3d.strip() or None
+    conjunto.recordatorio_msg_dia = recordatorio_msg_dia.strip() or None
+    conjunto.recordatorio_msg_vencido = recordatorio_msg_vencido.strip() or None
     db.commit()
     return RedirectResponse("/configuracion", status_code=302)
 

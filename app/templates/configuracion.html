@@ -75,9 +75,18 @@
   <form method="post" action="/configuracion/recordatorios">
     <label class="check">
       <input type="checkbox" name="recordatorios_activos" value="1" {{ 'checked' if conjunto.recordatorios_activos }}>
-      Enviar recordatorios automáticos
+      Enviar recordatorios automáticos a las 9:00 AM hora CDMX
     </label>
-    <button type="submit" class="secundario">Guardar</button>
+    <p class="ayuda">Se mandan a quienes aún no han pagado ese mes. Si el vecino paga antes, ya no recibe el siguiente. Usa {nombre}, {conjunto} y {fecha_limite} para personalizar.</p>
+    <label>10 días antes del vencimiento</label>
+    <textarea name="recordatorio_msg_10d" rows="2" placeholder="Hola {nombre}, te recordamos que tu pago de mantenimiento de {conjunto} vence el {fecha_limite}. Puedes realizar tu depósito con anticipación.">{{ conjunto.recordatorio_msg_10d or '' }}</textarea>
+    <label>3 días antes del vencimiento</label>
+    <textarea name="recordatorio_msg_3d" rows="2" placeholder="Hola {nombre}, tu pago de mantenimiento vence en 3 días ({fecha_limite}). No olvides realizarlo a tiempo.">{{ conjunto.recordatorio_msg_3d or '' }}</textarea>
+    <label>El día del vencimiento</label>
+    <textarea name="recordatorio_msg_dia" rows="2" placeholder="Hola {nombre}, hoy es el último día para realizar tu pago de mantenimiento de {conjunto}. Evita inconvenientes pagando hoy.">{{ conjunto.recordatorio_msg_dia or '' }}</textarea>
+    <label>1 día después del vencimiento (solo a quienes no pagaron)</label>
+    <textarea name="recordatorio_msg_vencido" rows="2" placeholder="Hola {nombre}, tu pago de mantenimiento de {conjunto} venció ayer. Por favor realiza tu pago a la brevedad o comunícate con tu administrador.">{{ conjunto.recordatorio_msg_vencido or '' }}</textarea>
+    <button type="submit" class="secundario">Guardar recordatorios</button>
   </form>
 </div>
 

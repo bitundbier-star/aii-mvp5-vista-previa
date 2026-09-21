@@ -29,11 +29,15 @@
       <div class="partida">
         <div>
           <label>Concepto</label>
-          <select name="concepto" class="sel-concepto" onchange="alternarProyecto(this)">
+          <select name="concepto" class="sel-concepto" onchange="alternarProyecto(this); alternarDescripcion(this)">
             {% for clave, etiqueta in conceptos %}
             <option value="{{ clave }}" {{ 'selected' if fila.concepto == clave else '' }}>{{ etiqueta }}</option>
             {% endfor %}
           </select>
+        </div>
+        <div class="bloque-descripcion-partida" hidden>
+          <label style="margin-top:0;">Descripción</label>
+          <input type="text" name="concepto_descripcion" placeholder="¿En qué consiste este ingreso?" maxlength="200">
         </div>
         <div class="bloque-proyecto-partida" {{ '' if fila.concepto == 'proyecto' else 'hidden' }}>
           <label>¿Cuál proyecto?</label>
@@ -77,6 +81,7 @@
     <div class="ayuda">El comprobante se manda siempre y automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}). Esto es por si además quieres mandárselo a quien pagó.</div>
 
     <button type="submit">Registrar y generar comprobante</button>
+    <a class="btn secundario" href="/pagos">Cancelar</a>
   </form>
 </div>
 
@@ -89,11 +94,15 @@
   <div class="partida">
     <div>
       <label>Concepto</label>
-      <select name="concepto" class="sel-concepto" onchange="alternarProyecto(this)">
+      <select name="concepto" class="sel-concepto" onchange="alternarProyecto(this); alternarDescripcion(this)">
         {% for clave, etiqueta in conceptos %}
         <option value="{{ clave }}">{{ etiqueta }}</option>
         {% endfor %}
       </select>
+    </div>
+    <div class="bloque-descripcion-partida" hidden>
+      <label style="margin-top:0;">Descripción</label>
+      <input type="text" name="concepto_descripcion" placeholder="¿En qué consiste?" maxlength="200">
     </div>
     <div class="bloque-proyecto-partida" hidden>
       <label>¿Cuál proyecto?</label>
@@ -121,6 +130,12 @@
 // que las tres listas —concepto, proyecto, monto— lleguen alineadas al
 // servidor, renglón por renglón.
 function partidas() { return document.querySelectorAll('#partidas .partida'); }
+
+function alternarDescripcion(select) {
+  var fila = select.closest('.partida');
+  var bloque = fila.querySelector('.bloque-descripcion-partida');
+  if (bloque) bloque.hidden = select.value !== 'otros';
+}
 
 function alternarProyecto(select) {
   var fila = select.closest('.partida');
