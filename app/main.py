@@ -1969,9 +1969,10 @@ async def egreso_nuevo(
     archivos = {"recibo": recibo, "xml": xml, "comprobante": comprobante}
 
     error = None
+    modo_simplificado = (conjunto.modo_interfaz or "simplificado") != "completo"
     if forma_pago not in models.FORMAS_PAGO_EGRESO_DICT:
         error = "Elige la forma en que se hizo el pago."
-    elif not _archivo_subido(recibo):
+    elif not modo_simplificado and not _archivo_subido(recibo):
         error = "Falta subir el recibo o factura (foto o PDF). Si el proveedor no dio recibo, sube la foto de una nota firmada."
     else:
         for campo, archivo in archivos.items():

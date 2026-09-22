@@ -3,7 +3,7 @@
 {% macro campos_archivos(e=None) %}
   <div class="archivo-campo">
     <label>{% if e %}Reemplazar recibo o factura{% else %}Recibo o factura <span class="obligatorio">*</span>{% endif %}</label>
-    <input type="file" name="recibo" accept="image/*,application/pdf" {{ '' if e else 'required' }}>
+    <input type="file" name="recibo" accept="image/*,application/pdf" {{ '' if e or conjunto.modo_interfaz != "completo" else 'required' }}>
     <div class="ayuda">{% if e %}Déjalo vacío para conservar el que ya tiene.{% else %}Obligatorio. Foto, captura o PDF. Si el proveedor no dio recibo, sube la foto de una nota firmada por quien recibió el pago.{% endif %}</div>
   </div>
   <div class="archivo-campo">
