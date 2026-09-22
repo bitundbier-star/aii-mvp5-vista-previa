@@ -89,9 +89,25 @@ OPCIONES_REVISION = [
 MESES_VISTA_PAGOS = 4
 
 
-def monto_por_propiedad_calculado(conjunto, monto_total: float) -> float:
+def monto_por_propiedad_calculado(
+    conjunto, monto_total: float,
+    financiamiento: str = "cuota",
+    financiamiento_pct_fondo: float | None = None,
+) -> float:
+    """Cuánto tiene que pagar cada propiedad.
+
+    - "cuota" (100% cuota): monto_total / n_propiedades
+    - "fondo" (100% fondo): $0 por propiedad
+    - "mixto": solo la parte de cuota extraordinaria / n_propiedades
+    """
     activas = [p for p in conjunto.propiedades if p.activo]
     n = max(len(activas), 1)
+    if financiamiento == "fondo":
+        return 0.0
+    if financiamiento == "mixto" and financiamiento_pct_fondo is not None:
+        pct_cuota = max(0.0, 100.0 - financiamiento_pct_fondo)
+        monto_cuota = round(monto_total * pct_cuota / 100, 2)
+        return round(monto_cuota / n, 2)
     return round(monto_total / n, 2)
 
 
@@ -1230,7 +1246,11 @@ async def proyecto_nuevo(
         descripcion_detalle=descripcion_detalle or None,
         compromisos_proveedor=compromisos_proveedor or None,
         monto_total=monto_total,
-        monto_por_propiedad=monto_por_propiedad_calculado(conjunto, monto_total),
+        monto_por_propiedad=monto_por_propiedad_calculado(
+            conjunto, monto_total,
+            financiamiento=financiamiento or "cuota",
+            financiamiento_pct_fondo=pct_fondo,
+        ),
         fecha_limite_pago=dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date()
         if fecha_limite_pago
         else None,
@@ -1309,7 +1329,13 @@ async def proyecto_editar_submit(
     proyecto.descripcion_detalle = descripcion_detalle or None
     proyecto.compromisos_proveedor = compromisos_proveedor or None
     proyecto.monto_total = monto_total
-    proyecto.monto_por_propiedad = monto_por_propiedad_calculado(conjunto, monto_total)
+    proyecto.financiamiento = financiamiento or None
+    proyecto.financiamiento_pct_fondo = pct_fondo
+    proyecto.monto_por_propiedad = monto_por_propiedad_calculado(
+        conjunto, monto_total,
+        financiamiento=financiamiento or "cuota",
+        financiamiento_pct_fondo=pct_fondo,
+    )
     proyecto.fecha_limite_pago = (
         dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date() if fecha_limite_pago else None
     )
@@ -1956,6 +1982,8 @@ async def egreso_nuevo(
     monto: float = Form(...),
     fecha: str = Form(...),
     forma_pago: str = Form(""),
+    es_proyecto: str = Form(""),
+    proyecto_id_egreso: str = Form(""),
     recibo: UploadFile | None = File(None),
     xml: UploadFile | None = File(None),
     comprobante: UploadFile | None = File(None),
@@ -1966,6 +1994,7 @@ async def egreso_nuevo(
         return RedirectResponse("/login", status_code=302)
 
     previo = {"concepto": concepto, "monto": monto, "fecha": fecha, "forma_pago": forma_pago}
+    proy_id = int(proyecto_id_egreso) if es_proyecto == "1" and proyecto_id_egreso.strip().isdigit() else None
     archivos = {"recibo": recibo, "xml": xml, "comprobante": comprobante}
 
     error = None
@@ -1995,6 +2024,7 @@ async def egreso_nuevo(
         monto=monto,
         fecha=dt.datetime.strptime(fecha, "%Y-%m-%d").date(),
         forma_pago=forma_pago,
+        proyecto_id=proy_id,
         recibo_path=rutas.get("recibo"),
         xml_path=rutas.get("xml"),
         comprobante_path=rutas.get("comprobante"),

@@ -96,11 +96,16 @@
     </div>
   </div>
   <table style="margin-top:10px;">
-    <tr><th>Proyecto</th><th class="num">Recaudado</th><th class="num">Meta</th><th class="num">Avance</th></tr>
+    <tr><th>Proyecto</th><th class="num">Del fondo</th><th class="num">De vecinos</th><th class="num">Total recaudado</th><th class="num">Meta</th><th class="num">Avance</th></tr>
     {% for p in resumen.etiquetado_proyectos %}
     <tr>
-      <td>{{ p.nombre }}</td>
-      <td class="num">{{ p.recaudado|dinero }}</td>
+      <td>
+        {{ p.nombre }}
+        <div class="ayuda">({{ p.financiamiento_legible }})</div>
+      </td>
+      <td class="num">{{ p.monto_del_fondo|dinero }}</td>
+      <td class="num">{{ p.recaudado_vecinos|dinero }}</td>
+      <td class="num"><strong>{{ p.recaudado|dinero }}</strong></td>
       <td class="num">{{ p.monto_total|dinero }}</td>
       <td class="num">{{ p.avance }}%</td>
     </tr>

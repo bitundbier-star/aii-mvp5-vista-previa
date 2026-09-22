@@ -36,6 +36,23 @@
       {% for c in conceptos_previos %}<option value="{{ c }}">{% endfor %}
     </datalist>
     {% if conceptos_previos %}<div class="ayuda">Empieza a escribir un gasto que ya hayas registrado antes (jardinería, limpieza, luz de áreas comunes…) y aparece en la lista con el monto de la última vez.</div>{% endif %}
+    {% set proyectos_activos = conjunto.proyectos|selectattr("en_curso")|list %}
+    {% if proyectos_activos %}
+    <div class="check" style="margin-top:10px;">
+      <input type="checkbox" id="chk-proyecto-egreso" name="es_proyecto" value="1" onchange="toggleProyectoEgreso(this)">
+      <label for="chk-proyecto-egreso">Este egreso corresponde a un proyecto</label>
+    </div>
+    <div id="bloque-proyecto-egreso" hidden style="margin-top:8px;">
+      <label>¿A qué proyecto corresponde?</label>
+      <select name="proyecto_id_egreso">
+        <option value="">Selecciona el proyecto…</option>
+        {% for pr in proyectos_activos %}
+        <option value="{{ pr.id }}">{{ pr.concepto }} ({{ pr.monto_total|dinero }} total — {{ pr.financiamiento_legible }})</option>
+        {% endfor %}
+      </select>
+      <div class="ayuda">Al vincularlo, el egreso aparece asociado a ese proyecto en el historial y en los reportes.</div>
+    </div>
+    {% endif %}
     <div class="fila-campos">
       <div>
         <label>Monto</label>
@@ -58,6 +75,7 @@
     </select>
     {% if conjunto.modo_interfaz == "completo" %}{{ campos_archivos() }}{% endif %}
     <button type="submit">Registrar egreso</button>
+    <button type="button" class="secundario" onclick="alternarFormulario()">Cancelar</button>
   </form>
   <p class="ayuda">Cada egreso se avisa automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}) con sus archivos adjuntos, para que quede constancia de que alguien sacó dinero.</p>
 </div>

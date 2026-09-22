@@ -37,16 +37,12 @@
 
 <div class="card">
   <table>
-    <tr><th>Propiedad</th><th class="num">Pagado</th><th class="num">Saldo</th><th>Estatus</th></tr>
+    <tr><th>Propiedad</th><th class="num">Saldo</th><th>Estatus</th></tr>
     {% for e in estado %}
     <tr>
       <td>
         {{ e.propiedad.etiqueta }}
         {% if e.propiedad.nombre_dueno %}<div class="ayuda">{{ e.propiedad.nombre_dueno }}</div>{% endif %}
-      </td>
-      <td class="num">
-        {{ e.total_pagado|dinero }}
-        {% if e.otros_ingresos %}<div class="ayuda">+ {{ e.otros_ingresos|dinero }} en gas/agua/otros (no bajan la deuda)</div>{% endif %}
       </td>
       <td class="num {{ e.vista.clase }}">
         <strong>{{ e.vista.monto }}</strong>
@@ -57,7 +53,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="4">Ninguna propiedad coincide con estos filtros.</td></tr>
+    <tr><td colspan="3">Ninguna propiedad coincide con estos filtros.</td></tr>
     {% endfor %}
   </table>
 </div>

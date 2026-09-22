@@ -255,9 +255,13 @@ def resumen_actual(conjunto: Conjunto, al_dia: dt.date | None = None) -> dict:  
         {
             "proyecto_id": pr.id,
             "nombre": pr.concepto,
-            "recaudado": pr.total_recaudado,
+            "financiamiento_legible": pr.financiamiento_legible,
+            "recaudado": pr.total_recaudado_completo,
+            "monto_del_fondo": pr.monto_del_fondo,
+            "recaudado_vecinos": pr.total_recaudado,
             "monto_total": pr.monto_total,
-            "avance": min(round(pr.total_recaudado / pr.monto_total * 100) if pr.monto_total else 0, 100),
+            "falta": pr.falta_recaudar,
+            "avance": min(round(pr.total_recaudado_completo / pr.monto_total * 100) if pr.monto_total else 0, 100),
         }
         for pr in proyectos_activos
     ]

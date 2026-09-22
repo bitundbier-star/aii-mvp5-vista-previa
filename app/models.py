@@ -340,7 +340,38 @@ class Proyecto(Base):
 
     @property
     def total_recaudado(self) -> float:
+        """Lo que los vecinos ya pagaron (cuota extraordinaria)."""
         return round(sum(p.monto for p in self.pagos if not p.cancelado), 2)
+
+    @property
+    def monto_del_fondo(self) -> float:
+        """La parte que debe salir del fondo del conjunto (no de los vecinos)."""
+        if self.financiamiento == "fondo":
+            return round(self.monto_total, 2)
+        if self.financiamiento == "mixto" and self.financiamiento_pct_fondo is not None:
+            return round(self.monto_total * self.financiamiento_pct_fondo / 100, 2)
+        return 0.0
+
+    @property
+    def total_recaudado_completo(self) -> float:
+        """Fondo etiquetado + lo que los vecinos ya pagaron."""
+        return round(self.monto_del_fondo + self.total_recaudado, 2)
+
+    @property
+    def falta_recaudar(self) -> float:
+        """Lo que aún falta de los vecinos (cuota extraordinaria pendiente)."""
+        activas_count = sum(1 for p in self.conjunto.propiedades if p.activo) if self.conjunto else 1
+        monto_total_cuota = round(self.monto_por_propiedad * activas_count, 2)
+        return max(0.0, round(monto_total_cuota - self.total_recaudado, 2))
+
+    @property
+    def financiamiento_legible(self) -> str:
+        if self.financiamiento == "fondo":
+            return "100% del fondo"
+        if self.financiamiento == "mixto" and self.financiamiento_pct_fondo is not None:
+            pct_cuota = round(100 - self.financiamiento_pct_fondo)
+            return f"Mixto: {int(self.financiamiento_pct_fondo)}% fondo / {pct_cuota}% cuota"
+        return "100% cuota extraordinaria"
 
 
 class Pago(Base):
@@ -446,6 +477,8 @@ class Egreso(Base):
     monto = Column(Float, nullable=False)
     fecha = Column(Date, nullable=False, default=hoy)
     forma_pago = Column(String(30), nullable=True)
+    proyecto_id = Column(Integer, ForeignKey("proyectos.id"), nullable=True)
+    proyecto = relationship("Proyecto", foreign_keys=[proyecto_id])
     recibo_path = Column(String(300), nullable=True)
     xml_path = Column(String(300), nullable=True)
     comprobante_path = Column(String(300), nullable=True)
