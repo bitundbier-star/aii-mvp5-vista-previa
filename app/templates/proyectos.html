@@ -147,11 +147,8 @@ function alternarFormulario() {
   var f = document.getElementById("form-proyecto");
   f.style.display = (f.style.display === "none") ? "block" : "none";
 }
-</script>
-{% endblock %}
-
-<script>
 function togglePctFondo(radio) {
   document.getElementById('bloque-pct-fondo').hidden = radio.value !== 'mixto';
 }
 </script>
+{% endblock %}

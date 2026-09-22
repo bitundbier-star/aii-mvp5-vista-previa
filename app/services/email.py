@@ -20,7 +20,7 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
 
-REMITENTE = SMTP_USER or "avisos_aii@omnera.mx"
+REMITENTE = "avisos@omnera.mx"
 REPLY_TO  = ""   # vacío = no se puede responder; solo el admin puede escribir
 
 
