@@ -47,13 +47,15 @@
     <a class="btn pequeno" style="margin:0;" href="/pagos/nuevo">+ Registrar pago</a>
     <a class="btn pequeno secundario" style="margin:0;" href="/egresos">+ Registrar egreso</a>
     <a class="btn pequeno secundario" style="margin:0;" href="/cartera">Ver cartera</a>
+    {% if conjunto.modo_interfaz == "completo" %}
     <a class="btn pequeno secundario" style="margin:0;" href="/reporte">Ver reporte</a>
     <a class="btn pequeno secundario" style="margin:0;" href="/proyectos">Proyectos</a>
+    {% endif %}
   </div>
 </div>
 
 {# Tarjetas del saldo — al dar clic van al desglose completo #}
-<a href="/dashboard/desglose" style="text-decoration:none; color:inherit;">
+{% if conjunto.modo_interfaz == "completo" %}<a href="/dashboard/desglose" style="text-decoration:none; color:inherit;">{% endif %}
 <div class="grid-stats" style="cursor:pointer;" title="Ver desglose completo">
   <div class="stat positivo">
     <div class="valor">{{ resumen.saldo_acumulado|dinero }}</div>
@@ -79,8 +81,8 @@
 </a>
 <p class="ayuda">El mantenimiento de este mes vence el día {{ conjunto.fecha_limite_pago }}. Da clic en las tarjetas para ver el desglose completo.</p>
 
-{# Desglose del saldo acumulado #}
-{% if resumen.etiquetado_proyectos %}
+{# Desglose del saldo acumulado — solo en modo completo #}
+{% if resumen.etiquetado_proyectos and conjunto.modo_interfaz == "completo" %}
 <div class="card" style="margin-top:8px;">
   <h2 style="margin-top:0; font-size:15px;">Desglose del saldo acumulado</h2>
   <div class="resumen-cartera" style="grid-template-columns: 1fr 1fr;">

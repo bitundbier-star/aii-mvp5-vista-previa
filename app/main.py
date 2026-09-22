@@ -1710,6 +1710,36 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@app.post("/configuracion/modo-interfaz")
+def configuracion_modo_interfaz(
+    modo: str = Form("simplificado"),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    if modo in ("simplificado", "completo"):
+        conjunto.modo_interfaz = modo
+        db.commit()
+    return RedirectResponse("/configuracion", status_code=302)
+
+
+@app.post("/bienvenida/elegir")
+def bienvenida_elegir(
+    modo: str = Form("simplificado"),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """Guarda la elección de la pantalla de bienvenida y redirige al dashboard."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    if modo in ("simplificado", "completo"):
+        conjunto.modo_interfaz = modo
+    conjunto.bienvenida_vista = True
+    db.commit()
+    return RedirectResponse("/dashboard", status_code=302)
+
+
 # ---------------------------------------------------------------------------
 # Recordatorios automáticos (llamado por el cron job de Render cada día)
 # ---------------------------------------------------------------------------
@@ -2819,6 +2849,18 @@ def configuracion_propiedad_nueva(
     """
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
+
+    # Verificar límite de propiedades según el plan
+    if not conjunto.puede_agregar_propiedad:
+        limite = conjunto.limite_propiedades
+        return RedirectResponse(
+            "/configuracion?error="
+            + urllib.parse.quote(
+                f"Has alcanzado el límite de {limite} propiedades del plan Básico. "
+                "Para registrar más propiedades actualiza tu plan."
+            ),
+            status_code=302,
+        )
 
     numero = (numero or "").strip() or siguiente_numero_propiedad(conjunto)
     repetido = any(

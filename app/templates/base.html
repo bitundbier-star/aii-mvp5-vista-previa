@@ -163,6 +163,32 @@ document.querySelectorAll('.saldo-bloque').forEach(function (bloque) {
 </script>
 
 <!-- =========================================================
+     BIENVENIDA — elección de modo de interfaz
+     Solo se muestra una vez, al entrar por primera vez.
+========================================================= -->
+{% if conjunto and not conjunto.bienvenida_vista %}
+<div id="bienvenida-overlay" style="position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9100; display:flex; align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:14px; box-shadow:0 8px 48px rgba(0,0,0,.25); padding:36px 32px 28px; max-width:480px; width:92%; text-align:center;">
+    <div style="font-size:40px; margin-bottom:10px;">🏘️</div>
+    <h2 style="margin:0 0 8px; color:#176BA0; font-size:20px;">Bienvenido a AII</h2>
+    <p style="color:#555; font-size:15px; line-height:1.6; margin:0 0 22px;">¿Cómo prefieres empezar?</p>
+    <form method="post" action="/bienvenida/elegir" style="display:flex; flex-direction:column; gap:12px;">
+      <button type="submit" name="modo" value="simplificado"
+              style="background:#176BA0; color:#fff; border:none; border-radius:10px; padding:14px 20px; font-size:15px; font-weight:600; cursor:pointer; text-align:left;">
+        <div style="font-size:16px; margin-bottom:4px;">📋 Modo simplificado</div>
+        <div style="font-size:13px; font-weight:400; opacity:.9;">Solo lo esencial: registrar pagos, ver quién debe y controlar los gastos. Puedes activar más funciones cuando quieras.</div>
+      </button>
+      <button type="submit" name="modo" value="completo"
+              style="background:#f5f5f5; color:#176BA0; border:2px solid #176BA0; border-radius:10px; padding:14px 20px; font-size:15px; font-weight:600; cursor:pointer; text-align:left;">
+        <div style="font-size:16px; margin-bottom:4px;">🔧 Modo completo</div>
+        <div style="font-size:13px; font-weight:400; color:#555;">Acceso a todas las funciones de tu plan: {% if conjunto.plan_nombre == "alto" %}reportes, proyectos con IA, multas, bitácora, recordatorios y más.{% elif conjunto.plan_nombre == "medio" %}reportes, proyectos, recordatorios automáticos, bitácora y más.{% else %}reportes mensuales, gestión de proyectos, historial descargable y más.{% endif %}</div>
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- =========================================================
      RECORRIDO DE AYUDA
      Ventanita paso a paso que explica cada sección de la app.
      Se activa con el botón "? Ayuda" del menú.

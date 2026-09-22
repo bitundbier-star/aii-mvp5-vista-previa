@@ -56,7 +56,7 @@
       <option value="{{ clave }}" {{ 'selected' if previo.forma_pago == clave else '' }}>{{ etiqueta }}</option>
       {% endfor %}
     </select>
-    {{ campos_archivos() }}
+    {% if conjunto.modo_interfaz == "completo" %}{{ campos_archivos() }}{% endif %}
     <button type="submit">Registrar egreso</button>
   </form>
   <p class="ayuda">Cada egreso se avisa automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}) con sus archivos adjuntos, para que quede constancia de que alguien sacó dinero.</p>

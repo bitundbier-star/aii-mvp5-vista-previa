@@ -125,6 +125,20 @@ class Conjunto(Base):
     stripe_customer_id = Column(String(120), nullable=True)
     stripe_subscription_id = Column(String(120), nullable=True)
     stripe_status = Column(String(30), nullable=True)   # "trialing"|"active"|"past_due"|"canceled"
+
+    # Plan contratado: "basico" | "medio" | "alto"
+    plan_nombre = Column(String(20), nullable=False, default="basico")
+
+    # Límite de propiedades según el plan
+    LIMITE_PROPIEDADES = {"basico": 30, "medio": 80, "alto": None}
+
+    # Modo de interfaz elegido por el administrador
+    # "simplificado" = solo lo esencial | "completo" = todo lo del plan
+    modo_interfaz = Column(String(20), nullable=False, default="simplificado")
+
+    # Si ya se le mostró la pantalla de bienvenida con la elección de modo
+    bienvenida_vista = Column(Boolean, nullable=False, default=False)
+
     prueba_hasta = Column(Date, nullable=True)           # fin del periodo de prueba gratuito
     cupon_usado = Column(String(60), nullable=True)      # código de cupón que se aplicó al registrarse
 
@@ -291,6 +305,34 @@ class Proyecto(Base):
     @property
     def tiene_pagos(self) -> bool:
         return len(self.pagos) > 0
+
+    @property
+    def limite_propiedades(self):
+        limites = {"basico": 30, "medio": 80, "alto": None}
+        return limites.get(self.plan_nombre or "basico")
+
+    @property
+    def puede_agregar_propiedad(self) -> bool:
+        limite = self.limite_propiedades
+        if limite is None:
+            return True
+        activas = sum(1 for p in self.propiedades if p.activo)
+        return activas < limite
+
+    @property
+    def plan_es(self):
+        """Devuelve un objeto con booleanos para comparar el plan en plantillas.
+        Uso: {{ conjunto.plan_es.medio }} en Jinja2."""
+        class _Plan:
+            def __init__(self, nombre):
+                self.basico = nombre == "basico"
+                self.medio  = nombre in ("medio", "alto")
+                self.alto   = nombre == "alto"
+        return _Plan(self.plan_nombre or "basico")
+
+    @property
+    def modo_completo(self) -> bool:
+        return self.modo_interfaz == "completo"
 
     @property
     def en_curso(self) -> bool:
