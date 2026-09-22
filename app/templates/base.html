@@ -37,8 +37,10 @@
     <a href="/pagos" class="{{ 'activo' if request.url.path.startswith('/pagos') or request.url.path.startswith('/comprobantes') else '' }}">Pagos</a>
     <a href="/cartera" class="{{ 'activo' if request.url.path == '/cartera' else '' }}">Cartera</a>
     <a href="/egresos" class="{{ 'activo' if request.url.path == '/egresos' else '' }}">Egresos</a>
+    {% if not conjunto or conjunto.modo_interfaz == "completo" %}
     <a href="/reporte" class="{{ 'activo' if request.url.path == '/reporte' else '' }}">Reporte</a>
     <a href="/proyectos" class="{{ 'activo' if request.url.path == '/proyectos' else '' }}">Proyectos</a>
+    {% endif %}
     <a href="/configuracion" class="{{ 'activo' if request.url.path in ('/configuracion', '/administrador', '/propiedades') else '' }}">Configuración</a>
   </nav>
 </div>

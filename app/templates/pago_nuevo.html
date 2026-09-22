@@ -31,7 +31,7 @@
           <label>Concepto</label>
           <select name="concepto" class="sel-concepto" onchange="alternarProyecto(this); alternarDescripcion(this)">
             {% for clave, etiqueta in conceptos %}
-            {% if not (clave == "proyecto" and not conjunto.modo_interfaz == "completo") %}
+            {% if not (clave == "proyecto" and conjunto.modo_interfaz != "completo") %}
             <option value="{{ clave }}" {{ 'selected' if fila.concepto == clave else '' }}>{{ etiqueta }}</option>
             {% endif %}
             {% endfor %}
