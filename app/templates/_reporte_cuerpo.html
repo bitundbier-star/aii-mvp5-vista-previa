@@ -125,21 +125,29 @@
 <div class="card">
   <h2>Proyectos activos o en recaudación de fondos</h2>
   <table>
-    <tr><th>Proyecto</th><th class="num">Monto total</th><th class="num">Recaudado</th><th class="num">Falta</th><th>Avance de recaudación</th></tr>
+    <tr><th>Proyecto</th><th class="num">Del fondo</th><th class="num">De vecinos</th><th class="num">Total recaudado</th><th class="num">Meta</th><th class="num">Falta (vecinos)</th><th>Avance</th></tr>
     {% for p in reporte.proyectos_en_curso + reporte.proyectos_cancelados_mes %}
-    <tr>
-      <td>{{ p.nombre }}</td>
-      <td class="num">{{ p.monto_total|dinero }}</td>
-      <td class="num">{{ p.recaudado|dinero }}</td>
-      <td class="num">{{ p.falta|dinero }}</td>
+    <tr {{ 'style="opacity:.65;"' if p.cancelado else '' }}>
       <td>
+        {{ p.nombre }}
+        {% if not p.cancelado and p.get("financiamiento_legible") %}<div class="ayuda">({{ p.financiamiento_legible }})</div>{% endif %}
+        {% if p.cancelado %}<span class="etiqueta-saldo saldo-debe">Cancelado</span>{% if p.motivo %} <span class="ayuda">{{ p.motivo }}</span>{% endif %}{% endif %}
+      </td>
+      <td class="num">{% if not p.cancelado %}{{ p.get("monto_del_fondo", 0)|dinero }}{% else %}—{% endif %}</td>
+      <td class="num">{% if not p.cancelado %}{{ p.get("recaudado_vecinos", p.recaudado)|dinero }}{% else %}—{% endif %}</td>
+      <td class="num"><strong>{{ p.recaudado|dinero }}</strong></td>
+      <td class="num">{{ p.monto_total|dinero }}</td>
+      <td class="num">{% if not p.cancelado %}{{ p.get("falta", 0)|dinero }}{% else %}—{% endif %}</td>
+      <td>
+        {% if not p.cancelado %}
         <div class="barra"><div class="barra-llena" style="width: {{ [p.avance, 100]|min }}%;"></div></div>
         <span class="ayuda">{{ p.avance }}%</span>
+        {% else %}—{% endif %}
       </td>
     </tr>
     {% endfor %}
   </table>
-  <p class="ayuda">«Avance» es cuánto se lleva recaudado del monto total del proyecto, no el avance de la obra o el trámite.</p>
+  <p class="ayuda">«Avance» considera el fondo del conjunto más lo que los vecinos ya pagaron, sobre el monto total del proyecto.</p>
 </div>
 {% endif %}
 
