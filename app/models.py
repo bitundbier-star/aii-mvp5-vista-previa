@@ -54,6 +54,19 @@ CONCEPTOS_PAGO = [
 ]
 CONCEPTOS_PAGO_DICT = dict(CONCEPTOS_PAGO)
 
+# "cancelado" no se guarda en `estado`: elegirlo lleva al proceso de
+# cancelación (con reembolsos) y ahí se marca Proyecto.cancelado.
+ESTADOS_PROYECTO = [
+    ("por_iniciar", "Por iniciar"),
+    ("en_recaudacion", "En recaudación de recursos"),
+    ("en_proceso", "En proceso"),
+    ("terminado", "Terminado"),
+    ("cancelado", "Cancelado"),
+]
+ESTADOS_PROYECTO_DICT = dict(ESTADOS_PROYECTO)
+# Estados de versiones anteriores
+ESTADOS_PROYECTO_DICT.update({"cerrado": "Terminado", "otro": "Por iniciar"})
+
 CONCEPTOS_QUE_ABONAN = {"mantenimiento", "proyecto"}
 
 METODOS_PAGO = [
@@ -171,6 +184,46 @@ class Conjunto(Base):
         cascade="all, delete-orphan",
         order_by="MontoMensual.vigente_desde",
     )
+
+    # Verificación del correo con el que se registró la cuenta. No bloquea
+    # nada: solo muestra un aviso en el Inicio hasta que se confirma.
+    email_verificado = Column(Boolean, nullable=False, default=False)
+    verif_token = Column(String(64), nullable=True)
+
+    # Día 0 del ciclo de falta de pago: el día en que venció la prueba sin
+    # suscripción o en que falló el cobro. Días 1-30: solo lectura. Día 30:
+    # aviso de cancelación. Días 31-45: sin acceso (solo puede pagar). Día 45:
+    # se borra todo. Vuelve a None en cuanto Stripe confirma un pago.
+    morosidad_desde = Column(Date, nullable=True)
+    aviso_cancelacion_enviado = Column(Boolean, nullable=False, default=False)
+
+    @property
+    def limite_propiedades(self):
+        limites = {"basico": 30, "medio": 80, "alto": None}
+        return limites.get(self.plan_nombre or "basico")
+
+    @property
+    def puede_agregar_propiedad(self) -> bool:
+        limite = self.limite_propiedades
+        if limite is None:
+            return True
+        activas = sum(1 for p in self.propiedades if p.activo)
+        return activas < limite
+
+    @property
+    def plan_es(self):
+        """Devuelve un objeto con booleanos para comparar el plan en plantillas.
+        Uso: {{ conjunto.plan_es.medio }} en Jinja2."""
+        class _Plan:
+            def __init__(self, nombre):
+                self.basico = nombre == "basico"
+                self.medio  = nombre in ("medio", "alto")
+                self.alto   = nombre == "alto"
+        return _Plan(self.plan_nombre or "basico")
+
+    @property
+    def modo_completo(self) -> bool:
+        return self.modo_interfaz == "completo"
 
     def siguiente_folio(self):
         self.ultimo_folio += 1
@@ -291,13 +344,26 @@ class Proyecto(Base):
     # Fecha en que se marcó como terminado
     terminado_en = Column(DateTime, nullable=True)
 
+    # Centavos que no se pueden repartir exacto entre las propiedades (por
+    # ejemplo $10,000 entre 3). Se redondea hacia abajo lo que paga cada
+    # propiedad y la diferencia la pone el fondo del conjunto; queda anotada
+    # para que se vea en el registro del proyecto.
+    ajuste_centavos_fondo = Column(Float, nullable=True)
+
+    # Un proyecto nunca se borra de verdad: se marca como eliminado, con fecha
+    # y motivo, y deja de aparecer en la lista normal (sigue en el historial).
+    eliminado = Column(Boolean, nullable=False, default=False)
+    eliminado_en = Column(DateTime, nullable=True)
+    eliminado_motivo = Column(Text, nullable=True)
+
     # Cancelación
     cancelado = Column(Boolean, nullable=False, default=False)
     cancelado_en = Column(DateTime, nullable=True)
     cancelado_motivo = Column(Text, nullable=True)
     cancelado_sin_recuperar = Column(Float, nullable=True)  # monto que el proveedor se quedó
     cancelado_reparto_perdida = Column(String(30), nullable=True)  # "pagaron" | "todas"
-    cancelado_credito_modo = Column(String(30), nullable=True)     # "cubrir_deuda" | "todo_favor"
+    cancelado_credito_modo = Column(String(30), nullable=True)     # "cubrir_deuda" | "todo_favor" | "por_propiedad"
+    cancelado_respaldo_path = Column(String(300), nullable=True)   # acta, carta del proveedor, etc.
 
     conjunto = relationship("Conjunto", back_populates="proyectos")
     pagos = relationship("Pago", back_populates="proyecto")
@@ -307,36 +373,8 @@ class Proyecto(Base):
         return len(self.pagos) > 0
 
     @property
-    def limite_propiedades(self):
-        limites = {"basico": 30, "medio": 80, "alto": None}
-        return limites.get(self.plan_nombre or "basico")
-
-    @property
-    def puede_agregar_propiedad(self) -> bool:
-        limite = self.limite_propiedades
-        if limite is None:
-            return True
-        activas = sum(1 for p in self.propiedades if p.activo)
-        return activas < limite
-
-    @property
-    def plan_es(self):
-        """Devuelve un objeto con booleanos para comparar el plan en plantillas.
-        Uso: {{ conjunto.plan_es.medio }} en Jinja2."""
-        class _Plan:
-            def __init__(self, nombre):
-                self.basico = nombre == "basico"
-                self.medio  = nombre in ("medio", "alto")
-                self.alto   = nombre == "alto"
-        return _Plan(self.plan_nombre or "basico")
-
-    @property
-    def modo_completo(self) -> bool:
-        return self.modo_interfaz == "completo"
-
-    @property
     def en_curso(self) -> bool:
-        return self.estado in ("por_iniciar", "en_recaudacion", "en_proceso") and not self.cancelado
+        return self.estado in ("por_iniciar", "en_recaudacion", "en_proceso") and not self.cancelado and not self.eliminado
 
     @property
     def total_recaudado(self) -> float:
@@ -345,12 +383,20 @@ class Proyecto(Base):
 
     @property
     def monto_del_fondo(self) -> float:
-        """La parte que debe salir del fondo del conjunto (no de los vecinos)."""
+        """La parte que debe salir del fondo del conjunto (no de los vecinos),
+        incluidos los centavos que no se pudieron repartir exacto."""
+        ajuste = self.ajuste_centavos_fondo or 0.0
         if self.financiamiento == "fondo":
             return round(self.monto_total, 2)
         if self.financiamiento == "mixto" and self.financiamiento_pct_fondo is not None:
-            return round(self.monto_total * self.financiamiento_pct_fondo / 100, 2)
-        return 0.0
+            return round(self.monto_total * self.financiamiento_pct_fondo / 100 + ajuste, 2)
+        return round(ajuste, 2)
+
+    @property
+    def estado_legible(self) -> str:
+        if self.cancelado:
+            return "Cancelado"
+        return ESTADOS_PROYECTO_DICT.get(self.estado, "Por iniciar")
 
     @property
     def total_recaudado_completo(self) -> float:
@@ -402,6 +448,11 @@ class Pago(Base):
     concepto_descripcion = Column(String(200), nullable=True)  # para cuando concepto == "otros"
 
     metodo_pago = Column(String(30), nullable=False, default="efectivo")
+    # Movimiento interno generado por el sistema (por ejemplo, al cancelar un
+    # proyecto se reintegra al fondo lo que después sale como reembolso). Sí
+    # cuenta en el saldo del conjunto, pero no es un pago de un vecino: no
+    # aparece en la lista de Pagos ni genera comprobante.
+    interno = Column(Boolean, nullable=False, default=False)
 
     # Snapshot al momento de registrar el pago, solo para que el comprobante
     # explique el monto — nunca se vuelve a leer para calcular la cartera
@@ -479,6 +530,16 @@ class Egreso(Base):
     forma_pago = Column(String(30), nullable=True)
     proyecto_id = Column(Integer, ForeignKey("proyectos.id"), nullable=True)
     proyecto = relationship("Proyecto", foreign_keys=[proyecto_id])
+    # Egresos que genera el sistema solo (pago de la suscripción a AII,
+    # reembolsos de un proyecto cancelado). No se editan ni se borran a mano:
+    # si se pudieran quitar, las cuentas del conjunto dejarían de cuadrar.
+    automatico = Column(Boolean, nullable=False, default=False)
+    # Para reembolsos: a qué propiedad se le devolvió el dinero.
+    propiedad_id = Column(Integer, ForeignKey("propiedades.id"), nullable=True)
+    propiedad = relationship("Propiedad", foreign_keys=[propiedad_id])
+    # Para egresos automáticos: el id de la factura de Stripe, así un aviso
+    # repetido de Stripe no registra el mismo cobro dos veces.
+    referencia_externa = Column(String(120), nullable=True, index=True)
     recibo_path = Column(String(300), nullable=True)
     xml_path = Column(String(300), nullable=True)
     comprobante_path = Column(String(300), nullable=True)

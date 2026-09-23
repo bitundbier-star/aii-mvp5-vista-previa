@@ -28,6 +28,8 @@ from .models import (
     CONCEPTOS_PAGO_DICT,
     METODOS_PAGO,
     METODOS_PAGO_DICT,
+    ESTADOS_PROYECTO,
+    ESTADOS_PROYECTO_DICT,
 )
 from .services.cartera import estado_conjunto, estado_propiedad, orden_natural
 from .services.comprobante import (
@@ -54,7 +56,6 @@ from .services.reportes import (
 from .services.imagen_reporte import generar_imagen_reporte, periodo_en_espanol
 from .services.pdf_reporte import generar_pdf_reporte, nombre_archivo_pdf
 from .services.recordatorios import ejecutar_recordatorios
-from .services.pagos_stripe import iniciar_actualizacion_metodo_pago
 from .demo import MODO_DEMO, DEMO_EMAIL, DEMO_PASSWORD, DEMO_NOMBRE, sembrar_si_hace_falta
 
 Base.metadata.create_all(bind=engine)
@@ -65,14 +66,6 @@ asegurar_columnas_nuevas()
 # invisible para quien entra a ver la herramienta.
 sembrar_si_hace_falta()
 
-ESTADOS_PROYECTO = [
-    ("por_iniciar", "Por iniciar"),
-    ("en_recaudacion", "En recaudación de recursos"),
-    ("en_proceso", "En proceso"),
-    ("cerrado", "Cerrado"),
-    ("otro", "Otro"),
-]
-ESTADOS_PROYECTO_DICT = dict(ESTADOS_PROYECTO)
 
 # Cada cuánto recordarle al administrador que revise el monto. El 0 es la
 # opción "yo hago el cambio cuando sea necesario": nunca se le recuerda.
@@ -89,26 +82,41 @@ OPCIONES_REVISION = [
 MESES_VISTA_PAGOS = 4
 
 
-def monto_por_propiedad_calculado(
+def reparto_proyecto(
     conjunto, monto_total: float,
     financiamiento: str = "cuota",
     financiamiento_pct_fondo: float | None = None,
-) -> float:
-    """Cuánto tiene que pagar cada propiedad.
+) -> tuple[float, float]:
+    """Cuánto paga cada propiedad y cuántos centavos pone el fondo.
 
-    - "cuota" (100% cuota): monto_total / n_propiedades
+    - "cuota" (100% cuota extraordinaria): monto_total / propiedades
     - "fondo" (100% fondo): $0 por propiedad
-    - "mixto": solo la parte de cuota extraordinaria / n_propiedades
+    - "mixto": el % del fondo sale del saldo del conjunto y solo el resto se
+      divide entre las propiedades.
+
+    Lo de cada propiedad se redondea HACIA ABAJO al centavo; la diferencia
+    (nunca más de unos centavos) la absorbe el fondo y queda anotada en el
+    proyecto. Devuelve (monto_por_propiedad, centavos_que_pone_el_fondo).
     """
+    import math
+
     activas = [p for p in conjunto.propiedades if p.activo]
     n = max(len(activas), 1)
     if financiamiento == "fondo":
-        return 0.0
+        return 0.0, 0.0
     if financiamiento == "mixto" and financiamiento_pct_fondo is not None:
-        pct_cuota = max(0.0, 100.0 - financiamiento_pct_fondo)
+        pct_cuota = min(max(0.0, 100.0 - financiamiento_pct_fondo), 100.0)
         monto_cuota = round(monto_total * pct_cuota / 100, 2)
-        return round(monto_cuota / n, 2)
-    return round(monto_total / n, 2)
+    else:
+        monto_cuota = round(monto_total, 2)
+    centavos = int(round(monto_cuota * 100))
+    por_propiedad = math.floor(centavos / n) / 100
+    ajuste = round(monto_cuota - por_propiedad * n, 2)
+    return round(por_propiedad, 2), max(ajuste, 0.0)
+
+
+def monto_por_propiedad_calculado(conjunto, monto_total, financiamiento="cuota", financiamiento_pct_fondo=None) -> float:
+    return reparto_proyecto(conjunto, monto_total, financiamiento, financiamiento_pct_fondo)[0]
 
 
 def siguiente_numero_propiedad(conjunto) -> str:
@@ -147,6 +155,7 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 templates.env.filters["dinero"] = dinero
 templates.env.globals["estado_saldo"] = estado_saldo
 templates.env.globals["modo_demo"] = MODO_DEMO
+templates.env.globals["demo_email_global"] = DEMO_EMAIL
 
 
 def _version_estaticos() -> str:
@@ -192,7 +201,26 @@ def requerir_login(request: Request, db: Session = Depends(get_db)):
 def tpl(request: Request, nombre: str, **contexto):
     contexto["request"] = request
     contexto.setdefault("conjunto", None)
+    if contexto["conjunto"] is not None and "cuenta" not in contexto:
+        contexto["cuenta"] = estado_cuenta(contexto["conjunto"])
     return templates.TemplateResponse(nombre, contexto)
+
+
+APP_URL = os.environ.get("APP_URL", "").rstrip("/")
+
+
+def url_base(request: Request | None = None) -> str:
+    """La dirección pública de la app, para los enlaces que van en correos y
+    en Stripe. Detrás del proxy de Render la petición llega como http, así que
+    se fuerza https salvo en pruebas locales."""
+    if APP_URL:
+        return APP_URL
+    if request is None:
+        return "https://aii-mvp5-vista-previa.onrender.com"
+    base = str(request.base_url).rstrip("/")
+    if base.startswith("http://") and not any(h in base for h in ("127.0.0.1", "localhost")):
+        base = "https://" + base[len("http://"):]
+    return base
 
 
 def avisar_a_la_cuenta(conjunto, asunto: str, plantilla: str, adjuntos=None, **datos):
@@ -200,8 +228,177 @@ def avisar_a_la_cuenta(conjunto, asunto: str, plantilla: str, adjuntos=None, **d
     los cambios de administrador). Si SMTP no está configurado, el correo se
     guarda como vista previa y se dice claramente que no salió — no se
     simula un envío que no ocurrió."""
+    datos.setdefault("app_url", url_base(None))
     cuerpo = templates.get_template(plantilla).render(conjunto=conjunto, **datos)
     return enviar_correo(conjunto.cuenta_email, asunto, cuerpo, adjuntos or [])
+
+
+# ---------------------------------------------------------------------------
+# Ciclo de la cuenta: prueba, suscripción y falta de pago
+#
+# Día 0 = el día en que venció la prueba sin suscripción, o el día en que
+# falló un cobro. A partir de ahí:
+#   días 1-30  → solo lectura: puede entrar, ver y descargar, no registrar.
+#   día 30     → se manda el aviso de cancelación.
+#   días 31-44 → sin acceso: solo puede pagar para reactivar.
+#   día 45     → se borra todo y se avisa que la cuenta se eliminó.
+# En cuanto Stripe confirma un pago, la cuenta vuelve a la normalidad.
+# ---------------------------------------------------------------------------
+
+DIAS_PRUEBA = 30
+DIAS_SOLO_LECTURA = 30
+DIAS_HASTA_BORRADO = 45
+
+PLANES = {
+    "basico": {"nombre": "Cuentas Claras", "nombre_completo": "Cuentas Claras - Auto-administración",
+               "limite": 30, "disponible": True},
+    "medio": {"nombre": "Conjunto en Orden", "limite": 80, "disponible": False},
+    "alto": {"nombre": "Administración Inteligente", "limite": None, "disponible": False},
+}
+
+
+def _es_cuenta_demo(conjunto) -> bool:
+    return MODO_DEMO and (conjunto.login_email or "").lower() == (DEMO_EMAIL or "").lower()
+
+
+def dia_cero_morosidad(conjunto, hoy_fecha: dt.date | None = None):
+    """El día 0 del ciclo de falta de pago, o None si la cuenta está al día."""
+    hoy_fecha = hoy_fecha or dt.date.today()
+    if _es_cuenta_demo(conjunto):
+        return None
+    if conjunto.morosidad_desde:
+        return conjunto.morosidad_desde
+    if conjunto.stripe_status == "active":
+        return None
+    if conjunto.prueba_hasta and hoy_fecha > conjunto.prueba_hasta:
+        return conjunto.prueba_hasta
+    return None
+
+
+def estado_cuenta(conjunto, hoy_fecha: dt.date | None = None) -> dict:
+    """En qué fase está la cuenta, para decidir qué se le permite y qué avisos ve."""
+    hoy_fecha = hoy_fecha or dt.date.today()
+    dia0 = dia_cero_morosidad(conjunto, hoy_fecha)
+    info = {
+        "fase": "activa", "dias": 0, "dia0": dia0,
+        "dias_prueba": None,
+        "fecha_bloqueo": None, "fecha_borrado": None,
+        "plan": PLANES.get(conjunto.plan_nombre or "basico", PLANES["basico"]),
+    }
+    if dia0 is None:
+        if conjunto.stripe_status != "active" and conjunto.prueba_hasta and not _es_cuenta_demo(conjunto):
+            info["fase"] = "prueba"
+            info["dias_prueba"] = max((conjunto.prueba_hasta - hoy_fecha).days, 0)
+        return info
+    dias = (hoy_fecha - dia0).days
+    info["dias"] = dias
+    info["fecha_bloqueo"] = dia0 + dt.timedelta(days=DIAS_SOLO_LECTURA + 1)
+    info["fecha_borrado"] = dia0 + dt.timedelta(days=DIAS_HASTA_BORRADO)
+    if dias <= 0:
+        info["fase"] = "activa"
+    elif dias <= DIAS_SOLO_LECTURA:
+        info["fase"] = "solo_lectura"
+    elif dias < DIAS_HASTA_BORRADO:
+        info["fase"] = "bloqueada"
+    else:
+        info["fase"] = "borrar"
+    return info
+
+
+# Lo que se puede hacer aun con la cuenta en solo lectura (todo con GET se
+# permite: ver y descargar). Con la cuenta bloqueada solo se puede pagar.
+_PERMITIDO_SOLO_LECTURA = (
+    "/logout", "/login", "/pago", "/planes", "/stripe/webhook", "/configuracion/metodo-pago",
+    "/configuracion/descargar", "/verificar", "/recuperar", "/restablecer", "/recordatorios/ejecutar",
+)
+_PERMITIDO_BLOQUEADA = (
+    "/logout", "/login", "/pago", "/planes", "/stripe/webhook", "/configuracion/metodo-pago",
+    "/static", "/verificar", "/recuperar", "/restablecer", "/favicon", "/recordatorios/ejecutar",
+)
+
+
+async def candado_de_cuenta(request: Request, call_next):
+    """Aplica las fases de la cuenta a cada petición de un conjunto con sesión."""
+    conjunto_id = request.session.get("conjunto_id") if "session" in request.scope else None
+    if conjunto_id:
+        from .database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            conjunto = db.get(models.Conjunto, conjunto_id)
+            fase = estado_cuenta(conjunto)["fase"] if conjunto else "activa"
+        finally:
+            db.close()
+        ruta = request.url.path
+        if fase in ("bloqueada", "borrar") and not ruta.startswith(_PERMITIDO_BLOQUEADA):
+            return RedirectResponse("/pago?bloqueada=1", status_code=302)
+        if fase == "solo_lectura" and request.method not in ("GET", "HEAD") \
+                and not ruta.startswith(_PERMITIDO_SOLO_LECTURA):
+            return RedirectResponse("/dashboard?solo_lectura=1", status_code=302)
+    return await call_next(request)
+
+
+# Va por DENTRO de la sesión (al final de la lista) para poder leer quién entró.
+from starlette.middleware import Middleware as _Middleware
+from starlette.middleware.base import BaseHTTPMiddleware as _BaseHTTPMiddleware
+
+app.user_middleware.append(_Middleware(_BaseHTTPMiddleware, dispatch=candado_de_cuenta))
+
+
+def _borrar_archivos_del_conjunto(conjunto):
+    rutas = []
+    for e in conjunto.egresos:
+        rutas += [e.recibo_path, e.xml_path, e.comprobante_path]
+    for p in conjunto.proyectos:
+        rutas += [p.cot1_path, p.cot2_path, p.cot3_path, getattr(p, "cancelado_respaldo_path", None)]
+    for c in conjunto.cambios_admin:
+        rutas.append(c.snapshot_path)
+    for r in rutas:
+        if not r:
+            continue
+        for candidata in (r, os.path.join(DATA_DIR, r)):
+            try:
+                if os.path.isfile(candidata):
+                    os.remove(candidata)
+                    break
+            except OSError:
+                pass
+
+
+def ciclo_cuentas_diario():
+    """Corre una vez al día: manda el aviso del día 30 y borra las cuentas
+    que llegaron al día 45 sin pagar."""
+    from .database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        hoy_fecha = dt.date.today()
+        for conjunto in db.query(models.Conjunto).all():
+            info = estado_cuenta(conjunto, hoy_fecha)
+            if info["fase"] == "borrar":
+                try:
+                    avisar_a_la_cuenta(
+                        conjunto, f"Tu cuenta de {conjunto.nombre} fue eliminada - AII",
+                        "correo_cuenta_eliminada_falta_pago.html", info=info,
+                    )
+                except Exception:
+                    pass
+                _borrar_archivos_del_conjunto(conjunto)
+                db.delete(conjunto)
+                db.commit()
+                continue
+            if info["dias"] >= DIAS_SOLO_LECTURA and not conjunto.aviso_cancelacion_enviado:
+                try:
+                    avisar_a_la_cuenta(
+                        conjunto, f"Aviso de cancelación de la cuenta de {conjunto.nombre} - AII",
+                        "correo_aviso_cancelacion.html", info=info,
+                    )
+                except Exception:
+                    pass
+                conjunto.aviso_cancelacion_enviado = True
+                db.commit()
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -261,12 +458,22 @@ def registro_submit(
     limite_pago = min(max(int(fecha_limite_pago or 11), 1), 31)
     inicio_cobros = restar_meses(hoy, -1) if hoy.day > limite_pago else hoy
 
+    login_email = login_email.strip().lower()
     existente = db.query(models.Conjunto).filter_by(login_email=login_email).first()
     if existente:
         return tpl(
             request,
             "registro.html",
             error="Ya existe una cuenta con ese correo.",
+            opciones_revision=OPCIONES_REVISION,
+        )
+    limite_plan = PLANES["basico"]["limite"]
+    if num_propiedades < 1 or (limite_plan and num_propiedades > limite_plan):
+        return tpl(
+            request,
+            "registro.html",
+            error=f"El plan {PLANES['basico']['nombre']} es para hasta {limite_plan} propiedades. "
+                  f"Si tu conjunto tiene más, escríbenos para ayudarte.",
             opciones_revision=OPCIONES_REVISION,
         )
 
@@ -285,6 +492,11 @@ def registro_submit(
         saldo_inicial=round(max(saldo_inicial or 0.0, 0.0), 2),
         fecha_inicio_cobros=inicio_cobros,
         monto_confirmado_en=dt.date.today(),
+        plan_nombre="basico",
+        stripe_status="trialing",
+        prueba_hasta=dt.date.today() + dt.timedelta(days=DIAS_PRUEBA),
+        email_verificado=False,
+        verif_token=uuid.uuid4().hex,
     )
     db.add(conjunto)
     db.flush()  # asigna conjunto.id
@@ -314,8 +526,46 @@ def registro_submit(
 
     db.commit()
 
+    _mandar_bienvenida(request, conjunto)
     request.session["conjunto_id"] = conjunto.id
     return RedirectResponse("/propiedades?bienvenida=1", status_code=302)
+
+
+def _mandar_bienvenida(request: Request, conjunto):
+    """Correo de bienvenida al correo con el que se registró la cuenta, con el
+    enlace para confirmar que ese correo es correcto."""
+    enlace = url_base(request) + f"/verificar?token={conjunto.verif_token}"
+    cuerpo = templates.get_template("correo_bienvenida.html").render(
+        conjunto=conjunto, enlace=enlace, plan=PLANES["basico"]["nombre_completo"],
+    )
+    try:
+        enviar_correo(conjunto.login_email, f"Bienvenido a AII - confirma tu correo ({conjunto.nombre})", cuerpo)
+    except Exception:
+        pass
+
+
+@app.get("/verificar", response_class=HTMLResponse)
+def verificar_correo(request: Request, token: str = "", db: Session = Depends(get_db)):
+    conjunto = db.query(models.Conjunto).filter_by(verif_token=token).first() if token else None
+    if conjunto:
+        conjunto.email_verificado = True
+        conjunto.verif_token = None
+        db.commit()
+        if request.session.get("conjunto_id") == conjunto.id:
+            return RedirectResponse("/dashboard?verificado=1", status_code=302)
+        return RedirectResponse("/login?verificado=1", status_code=302)
+    return RedirectResponse("/login?verificado=0", status_code=302)
+
+
+@app.post("/verificar/reenviar")
+def verificar_reenviar(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    if not conjunto.email_verificado:
+        conjunto.verif_token = conjunto.verif_token or uuid.uuid4().hex
+        db.commit()
+        _mandar_bienvenida(request, conjunto)
+    return RedirectResponse("/dashboard?reenviado=1", status_code=302)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -333,7 +583,12 @@ def login_submit(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    conjunto = db.query(models.Conjunto).filter_by(login_email=login_email).first()
+    from sqlalchemy import func as _func
+    conjunto = (
+        db.query(models.Conjunto)
+        .filter(_func.lower(models.Conjunto.login_email) == login_email.strip().lower())
+        .first()
+    )
     if not conjunto or not bcrypt.verify(password, conjunto.password_hash):
         return tpl(request, "login.html", error="Correo o contraseña incorrectos.")
     request.session["conjunto_id"] = conjunto.id
@@ -379,7 +634,7 @@ def recuperar_submit(
         )
         db.commit()
 
-        enlace = str(request.base_url).rstrip("/") + f"/restablecer?token={conjunto.reset_token}"
+        enlace = url_base(request) + f"/restablecer?token={conjunto.reset_token}"
         cuerpo = templates.get_template("correo_recuperacion.html").render(
             conjunto=conjunto, enlace=enlace, minutos=MINUTOS_VIGENCIA_RESTABLECIMIENTO,
         )
@@ -642,15 +897,24 @@ def propiedad_actualizar(
 
 
 @app.get("/propiedades/plantilla.xlsx")
+@app.get("/propiedades/plantilla")
 def propiedades_plantilla(conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     contenido = generar_plantilla_propiedades(conjunto)
-    nombre = f"propiedades_{conjunto.nombre}.xlsx".replace(" ", "_")
+    limpio = "".join(c if c.isalnum() or c in "-_" else "_" for c in conjunto.nombre).strip("_") or "conjunto"
+    # El nombre lleva fecha y hora, y la respuesta pide no guardarse en caché:
+    # así el navegador nunca entrega una plantilla vieja descargada antes.
+    nombre = f"propiedades_{limpio}_{dt.datetime.now():%Y%m%d_%H%M}.xlsx"
     return Response(
         content=contenido,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{nombre}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
     )
 
 
@@ -773,7 +1037,7 @@ def _partidas_de_recibo(db: Session, conjunto, folio: str) -> list:
     """Todas las partidas del recibo al que pertenece `folio` (sirve tanto
     el folio del recibo como el de una de sus partidas: folio-2, folio-3…)."""
     pago = db.query(models.Pago).filter_by(folio=folio, conjunto_id=conjunto.id).first()
-    if not pago:
+    if not pago or pago.interno:
         return []
     clave = pago.folio_recibo
     partidas = (
@@ -801,7 +1065,10 @@ def pagos_lista(
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
 
-    pagos = sorted(conjunto.pagos, key=lambda p: (p.fecha_recepcion, p.id), reverse=True)
+    pagos = sorted(
+        [p for p in conjunto.pagos if not p.interno],
+        key=lambda p: (p.fecha_recepcion, p.id), reverse=True,
+    )
     recibos = _agrupar_recibos(pagos)
     total_recibos = len(recibos)
 
@@ -1180,12 +1447,53 @@ def pago_cancelar(
         p.cancelado_en = momento
     db.commit()
 
+    _avisar_pago_cancelado(conjunto, pago.folio_recibo, partidas)
     return RedirectResponse(f"{destino}?cancelado=1", status_code=302)
+
+
+def _avisar_pago_cancelado(conjunto, folio: str, partidas: list):
+    """Avisa al propietario y al residente (a los dos, si tienen correo) que
+    un pago de su propiedad se canceló. Si nadie tiene correo, no se manda
+    nada; el pago queda marcado como cancelado de todos modos."""
+    if not partidas:
+        return
+    recibo = _recibo_desde_partidas(folio, partidas)
+    prop = recibo["propiedad"]
+    destinos = []
+    for correo in (prop.email_dueno, prop.email_residente):
+        correo = (correo or "").strip()
+        if correo and _parece_correo(correo) and correo.lower() not in [d.lower() for d in destinos]:
+            destinos.append(correo)
+    if not destinos:
+        return
+    cancelado_el = (dt.datetime.utcnow() - dt.timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
+    cuerpo = templates.get_template("correo_pago_cancelado.html").render(
+        conjunto=conjunto, recibo=recibo, cancelado_el=cancelado_el,
+    )
+    for d in destinos:
+        try:
+            enviar_correo(d, f"Pago cancelado (folio {recibo['folio']}) - {conjunto.nombre}", cuerpo)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
 # Proyectos (cuotas extraordinarias)
 # ---------------------------------------------------------------------------
+
+def _aplicar_estado_proyecto(proyecto, estado: str):
+    """Cambia el estado de un proyecto y deja registro de cuándo se terminó.
+    «Cancelado» no se guarda aquí (ver proyecto_cancelar_confirmar)."""
+    if estado == "cancelado" or estado not in ESTADOS_PROYECTO_DICT:
+        return
+    if estado in ("cerrado", "otro"):
+        estado = "terminado" if estado == "cerrado" else "por_iniciar"
+    if estado == "terminado" and proyecto.estado != "terminado":
+        proyecto.terminado_en = dt.datetime.utcnow()
+    elif estado != "terminado":
+        proyecto.terminado_en = None
+    proyecto.estado = estado
+
 
 @app.get("/proyectos", response_class=HTMLResponse)
 def proyectos_lista(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
@@ -1195,11 +1503,16 @@ def proyectos_lista(request: Request, conjunto=Depends(requerir_login), db: Sess
         request,
         "proyectos.html",
         conjunto=conjunto,
-        proyectos=sorted(conjunto.proyectos, key=lambda p: (p.fecha_alta, p.id), reverse=True),
+        proyectos=sorted(
+            [p for p in conjunto.proyectos if not p.eliminado],
+            key=lambda p: (p.fecha_alta, p.id), reverse=True,
+        ),
         estados=ESTADOS_PROYECTO,
         estados_dict=ESTADOS_PROYECTO_DICT,
         error=request.query_params.get("error"),
         cancelado=request.query_params.get("cancelado") == "1",
+        eliminado=request.query_params.get("eliminado") == "1",
+        error_pct=request.query_params.get("error_pct") == "1",
     )
 
 
@@ -1238,6 +1551,15 @@ async def proyecto_nuevo(
             return None
 
     pct_fondo = _monto_cot(financiamiento_pct_fondo)
+    if financiamiento == "mixto" and (pct_fondo is None or not 0 < pct_fondo < 100):
+        return RedirectResponse("/proyectos?error_pct=1", status_code=302)
+    por_prop, ajuste = reparto_proyecto(
+        conjunto, monto_total,
+        financiamiento=financiamiento or "cuota",
+        financiamiento_pct_fondo=pct_fondo,
+    )
+    if estado not in ("por_iniciar", "en_recaudacion", "en_proceso", "terminado"):
+        estado = "por_iniciar"
 
     proyecto = models.Proyecto(
         conjunto_id=conjunto.id,
@@ -1246,11 +1568,8 @@ async def proyecto_nuevo(
         descripcion_detalle=descripcion_detalle or None,
         compromisos_proveedor=compromisos_proveedor or None,
         monto_total=monto_total,
-        monto_por_propiedad=monto_por_propiedad_calculado(
-            conjunto, monto_total,
-            financiamiento=financiamiento or "cuota",
-            financiamiento_pct_fondo=pct_fondo,
-        ),
+        monto_por_propiedad=por_prop,
+        ajuste_centavos_fondo=ajuste or None,
         fecha_limite_pago=dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date()
         if fecha_limite_pago
         else None,
@@ -1265,6 +1584,8 @@ async def proyecto_nuevo(
         cot3_proveedor=cot3_proveedor or None,
         cot3_monto=_monto_cot(cot3_monto),
     )
+    if estado == "terminado":
+        proyecto.terminado_en = dt.datetime.utcnow()
     db.add(proyecto)
     db.flush()   # necesitamos el id para nombrar los archivos
 
@@ -1285,7 +1606,8 @@ def proyecto_editar_form(
     proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
     if not proyecto:
         return RedirectResponse("/proyectos", status_code=302)
-    return tpl(request, "proyecto_editar.html", conjunto=conjunto, proyecto=proyecto, estados=ESTADOS_PROYECTO)
+    return tpl(request, "proyecto_editar.html", conjunto=conjunto, proyecto=proyecto, estados=ESTADOS_PROYECTO,
+               reembolsos=_resumen_cancelacion(proyecto) if proyecto.cancelado else [])
 
 
 @app.post("/proyectos/{proyecto_id}/editar")
@@ -1300,6 +1622,8 @@ async def proyecto_editar_submit(
     fecha_limite_pago: str = Form(""),
     estado: str = Form("por_iniciar"),
     comentario_estado: str = Form(""),
+    financiamiento: str = Form("cuota"),
+    financiamiento_pct_fondo: str = Form(""),
     cot1: UploadFile | None = File(None),
     cot1_proveedor: str = Form(""),
     cot1_monto: str = Form(""),
@@ -1315,7 +1639,10 @@ async def proyecto_editar_submit(
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
-    if not proyecto:
+    if not proyecto or proyecto.eliminado:
+        return RedirectResponse("/proyectos", status_code=302)
+    if proyecto.cancelado:
+        # Un proyecto cancelado ya no se edita: su registro queda como estaba.
         return RedirectResponse("/proyectos", status_code=302)
 
     def _monto_cot(v: str) -> float | None:
@@ -1324,6 +1651,10 @@ async def proyecto_editar_submit(
         except ValueError:
             return None
 
+    pct_fondo = _monto_cot(financiamiento_pct_fondo)
+    if financiamiento == "mixto" and (pct_fondo is None or not 0 < pct_fondo < 100):
+        return RedirectResponse(f"/proyectos/{proyecto.id}/editar?error_pct=1", status_code=302)
+
     proyecto.concepto = concepto
     proyecto.descripcion = descripcion or None
     proyecto.descripcion_detalle = descripcion_detalle or None
@@ -1331,15 +1662,17 @@ async def proyecto_editar_submit(
     proyecto.monto_total = monto_total
     proyecto.financiamiento = financiamiento or None
     proyecto.financiamiento_pct_fondo = pct_fondo
-    proyecto.monto_por_propiedad = monto_por_propiedad_calculado(
+    por_prop, ajuste = reparto_proyecto(
         conjunto, monto_total,
         financiamiento=financiamiento or "cuota",
         financiamiento_pct_fondo=pct_fondo,
     )
+    proyecto.monto_por_propiedad = por_prop
+    proyecto.ajuste_centavos_fondo = ajuste or None
     proyecto.fecha_limite_pago = (
         dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date() if fecha_limite_pago else None
     )
-    proyecto.estado = estado
+    _aplicar_estado_proyecto(proyecto, estado)
     proyecto.comentario_estado = comentario_estado or None
     proyecto.cot1_proveedor = cot1_proveedor or None
     proyecto.cot1_monto = _monto_cot(cot1_monto)
@@ -1353,6 +1686,25 @@ async def proyecto_editar_submit(
             setattr(proyecto, f"{slot}_path", _guardar_cot(archivo, conjunto.id, slot))
 
     db.commit()
+    if estado == "cancelado":
+        # "Cancelado" no es un estado más: lleva al proceso de cancelación,
+        # que decide qué pasa con el dinero de cada propiedad.
+        return RedirectResponse(f"/proyectos/{proyecto.id}/cancelar", status_code=302)
+    return RedirectResponse("/proyectos", status_code=302)
+
+
+@app.post("/proyectos/{proyecto_id}/terminar")
+def proyecto_terminar(
+    proyecto_id: int,
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
+    if proyecto and not proyecto.cancelado and not proyecto.eliminado:
+        _aplicar_estado_proyecto(proyecto, "terminado")
+        db.commit()
     return RedirectResponse("/proyectos", status_code=302)
 
 
@@ -1360,25 +1712,37 @@ async def proyecto_editar_submit(
 def proyecto_eliminar(
     proyecto_id: int,
     request: Request,
+    motivo: str = Form(""),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
 ):
+    """Un proyecto no se borra de la base: queda marcado como eliminado, con
+    fecha y motivo, fuera de la lista normal pero dentro del historial."""
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
-    if not proyecto:
+    if not proyecto or proyecto.eliminado:
         return RedirectResponse("/proyectos", status_code=302)
 
-    # Un proyecto con pagos encima no se borra: los comprobantes que ya se le
-    # entregaron a los vecinos quedarían huérfanos. En ese caso se marca como
-    # "Cerrado" en vez de eliminarlo.
+    # Un proyecto con pagos encima no se elimina: se cancela (con reembolsos).
     if proyecto.tiene_pagos:
-        return RedirectResponse(f"/proyectos?error={proyecto.id}", status_code=302)
+        return RedirectResponse(
+            "/proyectos?error=" + urllib.parse.quote(
+                "Ese proyecto ya tiene pagos: en vez de eliminarlo, cancélalo para decidir qué pasa con el dinero."
+            ),
+            status_code=302,
+        )
+    if not motivo.strip():
+        return RedirectResponse(
+            "/proyectos?error=" + urllib.parse.quote("Para eliminar un proyecto hay que escribir el motivo."),
+            status_code=302,
+        )
 
-    db.delete(proyecto)
+    proyecto.eliminado = True
+    proyecto.eliminado_en = dt.datetime.utcnow()
+    proyecto.eliminado_motivo = motivo.strip()
     db.commit()
-    return RedirectResponse("/proyectos", status_code=302)
-
+    return RedirectResponse("/proyectos?eliminado=1", status_code=302)
 
 
 @app.get("/proyectos/{proyecto_id}/pagos", response_class=HTMLResponse)
@@ -1435,85 +1799,101 @@ def proyecto_cancelar_form(
     if not proyecto or proyecto.cancelado:
         return RedirectResponse("/proyectos", status_code=302)
     return tpl(request, "proyecto_cancelar.html", conjunto=conjunto, proyecto=proyecto,
-               preview=None, error=None)
+               preview=None, error=None, decisiones=DECISIONES_CANCELACION)
 
 
-def _preview_cancelacion(proyecto, sin_recuperar: float,
-                          reparto: str, credito_modo: str) -> list[dict]:
-    """Calcula qué le pasaría a cada propiedad si se cancela el proyecto.
+DECISIONES_CANCELACION = {
+    "abono": "Se abona a su cuenta",
+    "reembolso_proporcional": "Reembolso (proporcional a cómo pagó)",
+    "reembolso_transferencia": "Reembolso (todo por transferencia)",
+}
 
-    Devuelve una lista de filas con:
-    - propiedad, pagado_al_proyecto, perdida_asignada, devuelto,
-      saldo_actual, saldo_nuevo, delta (negativo = favor, positivo = debe más)
+
+def _preview_cancelacion(proyecto, sin_recuperar: float, reparto: str,
+                          decisiones: dict | None = None) -> list[dict]:
+    """Qué le pasaría a cada propiedad si se cancela el proyecto.
+
+    Por cada propiedad: cuánto pagó al proyecto (y cuánto de eso en efectivo),
+    qué parte de la pérdida le toca, cuánto se le devuelve y —según lo que
+    decida el administrador para esa propiedad— si ese dinero se abona a su
+    cuenta o se le reembolsa (y por qué vía).
+
+    Regla de reembolso: lo que se pagó en efectivo se puede devolver en
+    efectivo; todo lo demás, solo por transferencia.
     """
-    from app.services.cartera import estado_propiedad
+    decisiones = decisiones or {}
+    pagos_proyecto = [p for p in proyecto.pagos if not p.cancelado and p.concepto == "proyecto"]
 
-    pagos_proyecto = [
-        p for p in proyecto.pagos
-        if not p.cancelado and p.concepto == "proyecto"
-    ]
-
-    # Mapa propiedad_id → cuánto pagó al proyecto
-    pagado_por = {}
+    pagado_por, efectivo_por = {}, {}
     for p in pagos_proyecto:
         pagado_por[p.propiedad_id] = round(pagado_por.get(p.propiedad_id, 0.0) + p.monto, 2)
+        if p.metodo_pago == "efectivo":
+            efectivo_por[p.propiedad_id] = round(efectivo_por.get(p.propiedad_id, 0.0) + p.monto, 2)
 
     total_recaudado = round(sum(pagado_por.values()), 2)
     sin_recuperar = max(0.0, min(round(sin_recuperar, 2), total_recaudado))
 
     propiedades_activas = [prop for prop in proyecto.conjunto.propiedades if prop.activo]
     n_todas = len(propiedades_activas)
-    n_pagaron = len(pagado_por)
 
     filas = []
-    for prop in sorted(propiedades_activas, key=lambda x: x.id):
+    for prop in sorted(propiedades_activas, key=orden_natural):
         pagado = round(pagado_por.get(prop.id, 0.0), 2)
-        estado_actual = estado_propiedad(prop)
-        saldo_actual = round(estado_actual["saldo"], 2)
-
         if reparto == "todas":
-            # La pérdida se divide entre todas las propiedades activas
             perdida = round(sin_recuperar / n_todas, 2) if n_todas else 0.0
+        elif pagado > 0 and total_recaudado > 0:
+            perdida = round(sin_recuperar * pagado / total_recaudado, 2)
         else:
-            # Solo entre quienes pagaron, en proporción a lo que aportaron
-            if pagado > 0 and total_recaudado > 0:
-                perdida = round(sin_recuperar * pagado / total_recaudado, 2)
-            else:
-                perdida = 0.0
-
+            perdida = 0.0
+        perdida = min(perdida, pagado)
         devuelto = max(0.0, round(pagado - perdida, 2))
 
-        if credito_modo == "todo_favor":
-            # Todo lo devuelto queda como saldo a favor, sin tocar el adeudo
-            saldo_nuevo = round(saldo_actual - devuelto, 2)
-        else:
-            # Lo devuelto primero cubre lo que deba, y solo el sobrante queda a favor
-            debe = max(0.0, saldo_actual)
-            cubre = min(devuelto, debe)
-            sobrante = round(devuelto - cubre, 2)
-            saldo_nuevo = round(saldo_actual - cubre - sobrante, 2)
+        decision = decisiones.get(prop.id, "abono")
+        if decision not in DECISIONES_CANCELACION:
+            decision = "abono"
+
+        # Cómo saldría un reembolso: el efectivo en proporción a lo pagado en
+        # efectivo; el resto por transferencia.
+        en_efectivo = 0.0
+        if devuelto > 0 and decision == "reembolso_proporcional" and pagado > 0:
+            en_efectivo = round(devuelto * efectivo_por.get(prop.id, 0.0) / pagado, 2)
+        en_transferencia = round(devuelto - en_efectivo, 2) if decision != "abono" else 0.0
+
+        saldo_actual = round(estado_propiedad(prop)["saldo"], 2)
+        saldo_nuevo = round(saldo_actual - devuelto, 2) if decision == "abono" else saldo_actual
 
         filas.append({
             "propiedad": prop,
             "pagado": pagado,
+            "pagado_efectivo": round(efectivo_por.get(prop.id, 0.0), 2),
             "perdida": perdida,
             "devuelto": devuelto,
+            "decision": decision,
+            "reembolso_efectivo": en_efectivo,
+            "reembolso_transferencia": en_transferencia,
             "saldo_actual": saldo_actual,
             "saldo_nuevo": saldo_nuevo,
-            "cambia": abs(saldo_nuevo - saldo_actual) > 0.005,
+            "cambia": devuelto > 0.005,
         })
-
     return filas
 
 
+def _decisiones_del_form(form) -> dict:
+    """Lee los campos decision_<propiedad_id> del formulario."""
+    decisiones = {}
+    for clave, valor in form.items():
+        if clave.startswith("decision_"):
+            try:
+                decisiones[int(clave[len("decision_"):])] = valor
+            except ValueError:
+                pass
+    return decisiones
+
+
 @app.post("/proyectos/{proyecto_id}/cancelar/preview")
-def proyecto_cancelar_preview(
+async def proyecto_cancelar_preview(
     proyecto_id: int,
     request: Request,
-    motivo: str = Form(""),
-    sin_recuperar: str = Form("0"),
-    reparto_perdida: str = Form("pagaron"),
-    credito_modo: str = Form("cubrir_deuda"),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
 ):
@@ -1523,6 +1903,10 @@ def proyecto_cancelar_preview(
     proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
     if not proyecto or proyecto.cancelado:
         return RedirectResponse("/proyectos", status_code=302)
+    form = await request.form()
+    motivo = form.get("motivo", "")
+    sin_recuperar = form.get("sin_recuperar", "0")
+    reparto_perdida = form.get("reparto_perdida", "pagaron")
     try:
         monto_no_rec = float((sin_recuperar or "0").replace(",", "").strip())
     except ValueError:
@@ -1530,89 +1914,121 @@ def proyecto_cancelar_preview(
     error = None
     if not motivo.strip():
         error = "Escribe el motivo de la cancelación antes de ver la vista previa."
-    preview = None if error else _preview_cancelacion(proyecto, monto_no_rec, reparto_perdida, credito_modo)
+    preview = None if error else _preview_cancelacion(
+        proyecto, monto_no_rec, reparto_perdida, _decisiones_del_form(form)
+    )
     return tpl(request, "proyecto_cancelar.html", conjunto=conjunto, proyecto=proyecto,
-               preview=preview, error=error,
+               preview=preview, error=error, decisiones=DECISIONES_CANCELACION,
                form={"motivo": motivo, "sin_recuperar": sin_recuperar,
-                     "reparto_perdida": reparto_perdida, "credito_modo": credito_modo})
+                     "reparto_perdida": reparto_perdida})
 
 
 @app.post("/proyectos/{proyecto_id}/cancelar/confirmar")
 async def proyecto_cancelar_confirmar(
     proyecto_id: int,
     request: Request,
-    motivo: str = Form(...),
-    sin_recuperar: str = Form("0"),
-    reparto_perdida: str = Form("pagaron"),
-    credito_modo: str = Form("cubrir_deuda"),
-    respaldo: UploadFile | None = File(None),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
 ):
-    """Aplica la cancelación: marca el proyecto, cancela sus pagos y crea
-    los créditos (pagos con monto negativo) para cada propiedad."""
+    """Aplica la cancelación.
+
+    1. Los pagos al proyecto se deshacen (dejan de contar para el proyecto).
+    2. Por cada propiedad, lo que le toca de regreso:
+       - «abono»: se registra un abono a su cuenta (cubre primero lo que deba
+         y el resto queda a favor).
+       - «reembolso»: sale del conjunto como egreso de reembolso, por la vía
+         que corresponde (efectivo solo lo que se pagó en efectivo). Para que
+         el saldo del conjunto cuadre, primero se reintegra al fondo lo que
+         después sale como reembolso (movimiento interno).
+    3. El proyecto queda marcado como cancelado, con fecha, motivo y respaldo.
+    """
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     proyecto = db.query(models.Proyecto).filter_by(id=proyecto_id, conjunto_id=conjunto.id).first()
     if not proyecto or proyecto.cancelado:
         return RedirectResponse("/proyectos", status_code=302)
-    if not motivo.strip():
+    form = await request.form()
+    motivo = (form.get("motivo") or "").strip()
+    reparto_perdida = form.get("reparto_perdida", "pagaron")
+    if not motivo:
         return tpl(request, "proyecto_cancelar.html", conjunto=conjunto, proyecto=proyecto,
-                   preview=None, error="El motivo es obligatorio.")
-
+                   preview=None, error="El motivo es obligatorio.", decisiones=DECISIONES_CANCELACION)
     try:
-        monto_no_rec = float((sin_recuperar or "0").replace(",", "").strip())
+        monto_no_rec = float((form.get("sin_recuperar") or "0").replace(",", "").strip())
     except ValueError:
         monto_no_rec = 0.0
 
-    preview = _preview_cancelacion(proyecto, monto_no_rec, reparto_perdida, credito_modo)
+    preview = _preview_cancelacion(proyecto, monto_no_rec, reparto_perdida, _decisiones_del_form(form))
     ahora = dt.datetime.utcnow()
+    hoy_fecha = ahora.date()
 
-    # 1. Cancelar los pagos del proyecto (dejan de sumar en la cartera)
     for pago in proyecto.pagos:
         if not pago.cancelado:
             pago.cancelado = True
             pago.cancelado_en = ahora
 
-    # 2. Crear créditos de reembolso para las propiedades que recibirán algo.
-    #    Se usan pagos de concepto "mantenimiento" con monto = devuelto para
-    #    que la cartera los aplique como saldo a favor.  Con credito_modo
-    #    "todo_favor" se usa concepto "otros" para que no baje la deuda de
-    #    mantenimiento (el crédito se queda a favor libre).
+    def _movimiento(propiedad, monto, descripcion):
+        db.add(models.Pago(
+            conjunto_id=conjunto.id,
+            propiedad_id=propiedad.id,
+            folio=conjunto.siguiente_folio(),
+            fecha_recepcion=hoy_fecha,
+            monto=monto,
+            concepto="mantenimiento" if descripcion.startswith("Abono") else "otros",
+            concepto_descripcion=descripcion,
+            metodo_pago="otro",
+            interno=True,
+        ))
+
     for fila in preview:
         if fila["devuelto"] <= 0.005:
             continue
-        concepto_credito = "mantenimiento" if credito_modo == "cubrir_deuda" else "otros"
-        conjunto.ultimo_folio += 1
-        folio = f"AII-{conjunto.id:04d}-{conjunto.ultimo_folio:05d}"
-        db.add(models.Pago(
-            conjunto_id=conjunto.id,
-            propiedad_id=fila["propiedad"].id,
-            folio=folio,
-            recibo=folio,
-            fecha_recepcion=ahora.date(),
-            monto=fila["devuelto"],
-            concepto=concepto_credito,
-            metodo_pago="otro",
-        ))
+        prop = fila["propiedad"]
+        if fila["decision"] == "abono":
+            _movimiento(prop, fila["devuelto"], f"Abono por cancelación del proyecto {proyecto.concepto}")
+            continue
+        _movimiento(prop, fila["devuelto"], f"Reintegro para reembolso del proyecto {proyecto.concepto}")
+        for forma, monto in (("efectivo", fila["reembolso_efectivo"]), ("transferencia", fila["reembolso_transferencia"])):
+            if monto > 0.005:
+                db.add(models.Egreso(
+                    conjunto_id=conjunto.id,
+                    concepto=f"Reembolso por cancelación del proyecto {proyecto.concepto} — {prop.etiqueta}",
+                    monto=round(monto, 2),
+                    fecha=hoy_fecha,
+                    forma_pago=forma,
+                    proyecto_id=proyecto.id,
+                    propiedad_id=prop.id,
+                    automatico=True,
+                ))
 
-    # 3. Guardar respaldo si se subió uno
-    ruta_respaldo = None
-    if _archivo_subido(respaldo):
-        ruta_respaldo = _guardar_cot(respaldo, conjunto.id, "cancelacion")
+    if _archivo_subido(form.get("respaldo")):
+        proyecto.cancelado_respaldo_path = _guardar_cot(form.get("respaldo"), conjunto.id, "cancelacion")
 
-    # 4. Marcar el proyecto como cancelado
     proyecto.cancelado = True
     proyecto.cancelado_en = ahora
-    proyecto.cancelado_motivo = motivo.strip()
+    proyecto.cancelado_motivo = motivo
     proyecto.cancelado_sin_recuperar = round(monto_no_rec, 2)
     proyecto.cancelado_reparto_perdida = reparto_perdida
-    proyecto.cancelado_credito_modo = credito_modo
-    if ruta_respaldo:
-        proyecto.cot3_path = ruta_respaldo   # reutilizamos un slot libre
+    proyecto.cancelado_credito_modo = "por_propiedad"
 
     db.commit()
     return RedirectResponse("/proyectos?cancelado=1", status_code=302)
+
+
+def _resumen_cancelacion(proyecto) -> list[dict]:
+    """Lo que se decidió para cada propiedad al cancelar (para mostrarlo)."""
+    filas = []
+    for p in proyecto.conjunto.pagos:
+        if p.interno and p.concepto_descripcion and p.concepto_descripcion.startswith("Abono por cancelación del proyecto") \
+                and p.concepto_descripcion.endswith(proyecto.concepto) and proyecto.cancelado_en \
+                and p.fecha_recepcion == proyecto.cancelado_en.date():
+            filas.append({"propiedad": p.propiedad.etiqueta, "decision": "Abono a su cuenta",
+                          "monto": p.monto, "forma": "—"})
+    for e in proyecto.conjunto.egresos:
+        if e.automatico and e.proyecto_id == proyecto.id and e.propiedad_id:
+            filas.append({"propiedad": e.propiedad.etiqueta if e.propiedad else "", "decision": "Reembolso",
+                          "monto": e.monto, "forma": e.forma_pago_legible})
+    return filas
 
 
 @app.get("/registro/validar-cupon")
@@ -1632,106 +2048,249 @@ def validar_cupon(codigo: str = "", db: Session = Depends(get_db)):
 
 # ---------------------------------------------------------------------------
 # Stripe
+#
+# En el tablero de Stripe viven el producto, el precio, los cupones (códigos
+# promocionales), el webhook y el Portal de Clientes. Aquí solo se manda al
+# cliente a pagar, se le abre el portal y se escuchan los avisos de Stripe.
 # ---------------------------------------------------------------------------
 import stripe as stripe_lib
 
 stripe_lib.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
-STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID_BASICO", "")
-STRIPE_PUB_KEY  = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID_BASICO") or os.environ.get("STRIPE_PRICE_ID", "")
+STRIPE_PUB_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-PERIODO_PRUEBA_DIAS = 30
+# Enlace fijo del Portal de Clientes (Stripe → Portal de clientes → enlace).
+# Solo se usa si la cuenta todavía no tiene cliente en Stripe.
+STRIPE_PORTAL_URL = os.environ.get("STRIPE_PORTAL_URL", "")
+PRECIO_BASICO_RESPALDO = 349.0
 
-def _precio_con_cupon(precio_base: float, cupon) -> float:
-    if not cupon:
-        return precio_base
-    if cupon.descuento_tipo == "porcentaje":
-        return round(precio_base * (1 - cupon.descuento_valor / 100), 2)
-    return max(0.0, round(precio_base - cupon.descuento_valor, 2))
+_cache_precio = {"monto": None, "hasta": None}
+
+
+def precio_basico() -> float:
+    """El precio mensual real del plan, leído de Stripe (se guarda una hora)."""
+    ahora_ = dt.datetime.utcnow()
+    if _cache_precio["monto"] is not None and _cache_precio["hasta"] and ahora_ < _cache_precio["hasta"]:
+        return _cache_precio["monto"]
+    monto = PRECIO_BASICO_RESPALDO
+    if stripe_lib.api_key and STRIPE_PRICE_ID:
+        try:
+            precio = stripe_lib.Price.retrieve(STRIPE_PRICE_ID)
+            if precio.get("unit_amount") is not None:
+                monto = precio["unit_amount"] / 100
+        except Exception:
+            pass
+    _cache_precio.update(monto=monto, hasta=ahora_ + dt.timedelta(hours=1))
+    return monto
+
+
+def stripe_listo() -> bool:
+    return bool(stripe_lib.api_key and STRIPE_PRICE_ID)
 
 
 @app.get("/pago", response_class=HTMLResponse)
-def pago_form(
-    request: Request,
-    conjunto=Depends(requerir_login),
-    db: Session = Depends(get_db),
-):
-    """Pantalla de suscripción para conjuntos en periodo de prueba o sin pago activo."""
+def pago_form(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    """Planes y suscripción. Solo Cuentas Claras se puede contratar por ahora."""
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
-    return tpl(request, "pago.html", conjunto=conjunto,
-               stripe_pub_key=STRIPE_PUB_KEY, precio=500,
-               error=request.query_params.get("error"))
+    return tpl(
+        request, "pago.html", conjunto=conjunto, planes=PLANES,
+        precio=precio_basico(), stripe_listo=stripe_listo(),
+        error=request.query_params.get("error"),
+        bloqueada=request.query_params.get("bloqueada") == "1",
+    )
+
+
+@app.get("/planes")
+def planes_redirige():
+    return RedirectResponse("/pago", status_code=302)
 
 
 @app.post("/pago/checkout")
-def pago_checkout(
-    request: Request,
-    conjunto=Depends(requerir_login),
-    db: Session = Depends(get_db),
-):
-    """Crea una sesión de Stripe Checkout y redirige ahí."""
-    if not conjunto or not stripe_lib.api_key or not STRIPE_PRICE_ID:
-        return RedirectResponse("/dashboard", status_code=302)
+def pago_checkout(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    """Crea la sesión de pago de Stripe y manda al cliente ahí."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    if not stripe_listo():
+        return RedirectResponse("/pago?error=" + urllib.parse.quote(
+            "El cobro todavía no está configurado. Escríbenos por WhatsApp para activarlo."), status_code=302)
+    if conjunto.stripe_status == "active" and conjunto.stripe_subscription_id and not conjunto.morosidad_desde:
+        return RedirectResponse("/configuracion?ya_suscrito=1", status_code=302)
+
+    base = url_base(request)
+    datos = dict(
+        mode="subscription",
+        line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+        success_url=base + "/pago/exito?session_id={CHECKOUT_SESSION_ID}",
+        cancel_url=base + "/pago?error=" + urllib.parse.quote("No se completó el pago. Puedes intentarlo de nuevo."),
+        client_reference_id=str(conjunto.id),
+        metadata={"conjunto_id": str(conjunto.id)},
+        subscription_data={"metadata": {"conjunto_id": str(conjunto.id)}},
+        allow_promotion_codes=True,
+        locale="es",
+    )
+    if conjunto.stripe_customer_id:
+        datos["customer"] = conjunto.stripe_customer_id
+    else:
+        datos["customer_email"] = conjunto.cuenta_email or conjunto.login_email
+    # Si todavía le quedan días de prueba, no los pierde por suscribirse antes:
+    # el primer cobro se hace el día que termina la prueba.
+    if conjunto.prueba_hasta and conjunto.stripe_status == "trialing":
+        fin = dt.datetime.combine(conjunto.prueba_hasta, dt.time(18, 0))
+        if fin - dt.datetime.utcnow() > dt.timedelta(hours=49):
+            datos["subscription_data"]["trial_end"] = int(fin.replace(tzinfo=dt.timezone.utc).timestamp())
     try:
-        session = stripe_lib.checkout.Session.create(
-            customer_email=conjunto.login_email,
-            payment_method_types=["card"],
-            line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
-            mode="subscription",
-            success_url=str(request.base_url) + "pago/exito?session_id={CHECKOUT_SESSION_ID}",
-            cancel_url=str(request.base_url) + "pago?error=cancelado",
-            metadata={"conjunto_id": str(conjunto.id)},
-        )
-        return RedirectResponse(session.url, status_code=303)
+        sesion = stripe_lib.checkout.Session.create(**datos)
+        return RedirectResponse(sesion.url, status_code=303)
     except Exception as e:
-        return RedirectResponse(f"/pago?error={urllib.parse.quote(str(e))}", status_code=302)
+        return RedirectResponse("/pago?error=" + urllib.parse.quote(
+            "Stripe no pudo iniciar el pago: " + str(e)[:200]), status_code=302)
 
 
 @app.get("/pago/exito", response_class=HTMLResponse)
 def pago_exito(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
-    return tpl(request, "pago_exito.html", conjunto=conjunto)
+    return tpl(request, "pago_exito.html", conjunto=conjunto, precio=precio_basico(), planes=PLANES)
+
+
+@app.post("/configuracion/metodo-pago", response_class=HTMLResponse)
+def configuracion_metodo_pago(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    """Abre el Portal de Clientes de Stripe: cambiar tarjeta, ver facturas o cancelar."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    if conjunto.stripe_customer_id and stripe_lib.api_key:
+        try:
+            portal = stripe_lib.billing_portal.Session.create(
+                customer=conjunto.stripe_customer_id, return_url=url_base(request) + "/configuracion",
+            )
+            return RedirectResponse(portal.url, status_code=303)
+        except Exception as e:
+            return _contexto_configuracion(request, conjunto, mensaje_pago="Stripe no pudo abrir el portal: " + str(e)[:200])
+    if STRIPE_PORTAL_URL:
+        return RedirectResponse(STRIPE_PORTAL_URL, status_code=303)
+    return _contexto_configuracion(
+        request, conjunto,
+        mensaje_pago="Todavía no tienes una suscripción. Primero suscríbete desde «Planes y pago»; después aquí podrás cambiar tu tarjeta o ver tus facturas.",
+    )
+
+
+def _conjunto_de_stripe(db, obj, subscription_id=None):
+    """Encuentra el conjunto de un aviso de Stripe (por metadata, suscripción o cliente)."""
+    meta = obj.get("metadata") or {}
+    cid = meta.get("conjunto_id") or obj.get("client_reference_id")
+    if cid and str(cid).isdigit():
+        c = db.get(models.Conjunto, int(cid))
+        if c:
+            return c
+    if subscription_id:
+        c = db.query(models.Conjunto).filter_by(stripe_subscription_id=subscription_id).first()
+        if c:
+            return c
+    cliente = obj.get("customer")
+    if cliente:
+        return db.query(models.Conjunto).filter_by(stripe_customer_id=cliente).first()
+    return None
+
+
+def _suscripcion_de_factura(factura) -> str | None:
+    sub = factura.get("subscription")
+    if sub:
+        return sub if isinstance(sub, str) else sub.get("id")
+    padre = factura.get("parent") or {}
+    detalles = padre.get("subscription_details") or {}
+    sub = detalles.get("subscription")
+    if sub:
+        return sub if isinstance(sub, str) else sub.get("id")
+    return None
+
+
+def _ponerse_al_corriente(conjunto):
+    conjunto.stripe_status = "active"
+    conjunto.morosidad_desde = None
+    conjunto.aviso_cancelacion_enviado = False
+
+
+def _empezar_morosidad(conjunto, estado: str):
+    conjunto.stripe_status = estado
+    if not conjunto.morosidad_desde:
+        conjunto.morosidad_desde = dt.date.today()
 
 
 @app.post("/stripe/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
-    """Webhook de Stripe: activa o suspende cuentas según el estado del pago."""
+    """Avisos de Stripe. Solo se aceptan si vienen firmados por Stripe."""
     payload = await request.body()
-    sig = request.headers.get("stripe-signature", "")
+    firma = request.headers.get("stripe-signature", "")
+    if not STRIPE_WEBHOOK_SECRET:
+        return Response("webhook sin configurar", status_code=400)
     try:
-        if STRIPE_WEBHOOK_SECRET:
-            event = stripe_lib.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
-        else:
-            event = stripe_lib.Event.construct_from(
-                stripe_lib.util.convert_to_stripe_object(
-                    __import__("json").loads(payload), stripe_lib.api_key, None
-                ),
-                stripe_lib.api_key,
-            )
+        evento = stripe_lib.Webhook.construct_event(payload, firma, STRIPE_WEBHOOK_SECRET)
     except Exception:
-        return Response(status_code=400)
+        return Response("firma inválida", status_code=400)
 
-    obj = event["data"]["object"]
+    tipo = evento["type"]
+    obj = evento["data"]["object"]
+    obj = obj.to_dict() if hasattr(obj, "to_dict") else dict(obj)
 
-    if event["type"] == "checkout.session.completed":
-        cid = obj.get("metadata", {}).get("conjunto_id")
-        if cid:
-            c = db.query(models.Conjunto).filter_by(id=int(cid)).first()
-            if c:
-                c.stripe_customer_id = obj.get("customer")
-                c.stripe_subscription_id = obj.get("subscription")
-                c.stripe_status = "active"
-                c.prueba_hasta = None
-                db.commit()
+    if tipo == "checkout.session.completed":
+        c = _conjunto_de_stripe(db, obj)
+        if c:
+            c.stripe_customer_id = obj.get("customer") or c.stripe_customer_id
+            c.stripe_subscription_id = obj.get("subscription") or c.stripe_subscription_id
+            _ponerse_al_corriente(c)
+            db.commit()
 
-    elif event["type"] in ("customer.subscription.deleted", "invoice.payment_failed"):
-        sub_id = obj.get("id") if event["type"] == "customer.subscription.deleted" else obj.get("subscription")
-        if sub_id:
-            c = db.query(models.Conjunto).filter_by(stripe_subscription_id=sub_id).first()
-            if c:
-                c.stripe_status = "canceled" if "deleted" in event["type"] else "past_due"
-                db.commit()
+    elif tipo == "invoice.paid":
+        sub_id = _suscripcion_de_factura(obj)
+        c = _conjunto_de_stripe(db, obj, sub_id)
+        if c:
+            if sub_id:
+                c.stripe_subscription_id = sub_id
+            c.stripe_customer_id = obj.get("customer") or c.stripe_customer_id
+            _ponerse_al_corriente(c)
+            monto = (obj.get("amount_paid") or 0) / 100
+            factura_id = obj.get("id")
+            ya = db.query(models.Egreso).filter_by(conjunto_id=c.id, referencia_externa=factura_id).first()
+            if monto > 0 and not ya:
+                # Lo que el conjunto le paga a AII es un gasto del conjunto:
+                # se registra solo, y no se puede borrar a mano.
+                db.add(models.Egreso(
+                    conjunto_id=c.id,
+                    concepto=f"Suscripción AII — Plan {PLANES.get(c.plan_nombre or 'basico', PLANES['basico'])['nombre']}",
+                    monto=round(monto, 2),
+                    fecha=dt.date.today(),
+                    forma_pago="tarjeta",
+                    automatico=True,
+                    referencia_externa=factura_id,
+                ))
+            db.commit()
+
+    elif tipo == "invoice.payment_failed":
+        c = _conjunto_de_stripe(db, obj, _suscripcion_de_factura(obj))
+        if c:
+            _empezar_morosidad(c, "past_due")
+            db.commit()
+
+    elif tipo == "customer.subscription.updated":
+        c = _conjunto_de_stripe(db, obj, obj.get("id"))
+        if c:
+            c.stripe_subscription_id = obj.get("id") or c.stripe_subscription_id
+            estado = obj.get("status")
+            if estado in ("active", "trialing"):
+                if estado == "active" or c.stripe_status != "active":
+                    _ponerse_al_corriente(c)
+                    if estado == "trialing":
+                        c.stripe_status = "active"   # suscrito; la prueba sigue corriendo en Stripe
+            elif estado in ("past_due", "unpaid", "incomplete_expired", "canceled"):
+                _empezar_morosidad(c, "past_due" if estado != "canceled" else "canceled")
+            db.commit()
+
+    elif tipo == "customer.subscription.deleted":
+        c = _conjunto_de_stripe(db, obj, obj.get("id"))
+        if c:
+            _empezar_morosidad(c, "canceled")
+            db.commit()
 
     return {"ok": True}
 
@@ -2065,7 +2624,7 @@ async def egreso_editar(
         return RedirectResponse("/login", status_code=302)
 
     egreso = db.query(models.Egreso).filter_by(id=egreso_id, conjunto_id=conjunto.id).first()
-    if not egreso:
+    if not egreso or egreso.automatico:
         return RedirectResponse("/egresos", status_code=302)
 
     archivos = {"recibo": recibo, "xml": xml, "comprobante": comprobante}
@@ -2116,7 +2675,7 @@ def egreso_eliminar(
         return RedirectResponse("/login", status_code=302)
 
     egreso = db.query(models.Egreso).filter_by(id=egreso_id, conjunto_id=conjunto.id).first()
-    if not egreso:
+    if not egreso or egreso.automatico:
         return RedirectResponse("/egresos", status_code=302)
 
     # La caja chica se calcula en vivo (ingresos acumulados − egresos
@@ -2840,18 +3399,6 @@ def configuracion_password(
     return _contexto_configuracion(request, conjunto, exito_password=True)
 
 
-@app.post("/configuracion/metodo-pago", response_class=HTMLResponse)
-def configuracion_metodo_pago(
-    request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)
-):
-    if not conjunto:
-        return RedirectResponse("/login", status_code=302)
-    resultado = iniciar_actualizacion_metodo_pago(conjunto)
-    if resultado["listo"] and resultado["url"]:
-        return RedirectResponse(resultado["url"], status_code=302)
-    return _contexto_configuracion(request, conjunto, mensaje_pago=resultado["detalle"])
-
-
 @app.post("/configuracion/propiedades/nueva")
 def configuracion_propiedad_nueva(
     request: Request,
@@ -3075,6 +3622,8 @@ scheduler.add_job(enviar_recordatorios_inicio_mes, "cron", day=1, hour=9, minute
 # Corre todos los días: cada conjunto elige su propia fecha límite, así que
 # no hay un solo día del mes que sirva para todos.
 scheduler.add_job(enviar_recordatorios_limite, "cron", hour=9, minute=30)
+# Fases de la cuenta (aviso del día 30 y borrado del día 45). 13:00 UTC = 7:00 CDMX.
+scheduler.add_job(ciclo_cuentas_diario, "cron", hour=13, minute=0)
 
 
 @app.on_event("startup")

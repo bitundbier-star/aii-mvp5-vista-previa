@@ -4,7 +4,10 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# En Render, si se monta un disco persistente, AII_DATA_DIR apunta a él (por
+# ejemplo /var/data) y ahí viven la base y todos los archivos subidos. Sin esa
+# variable se usa la carpeta data/ del proyecto, que en Render es temporal.
+DATA_DIR = os.environ.get("AII_DATA_DIR") or os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 DATABASE_URL = os.environ.get(
