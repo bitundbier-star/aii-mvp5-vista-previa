@@ -144,7 +144,18 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SECRET_KEY = os.environ.get("SECRET_KEY", "cambia-esta-clave-en-produccion")
 
 app = FastAPI(title="AII - Vecinos que se auto-administran (MVP)")
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+# La sesión vive en una cookie firmada con SECRET_KEY: nadie puede fabricarla
+# ni leer la cuenta de otro. Además se cierra sola tras 8 horas de inactividad
+# (cada petición renueva la cookie), para que una sesión abierta en una
+# computadora compartida no quede viva indefinidamente.
+MINUTOS_INACTIVIDAD = 8 * 60
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    max_age=MINUTOS_INACTIVIDAD * 60,
+    same_site="lax",
+    https_only=False,
+)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
@@ -201,8 +212,13 @@ def requerir_login(request: Request, db: Session = Depends(get_db)):
 def tpl(request: Request, nombre: str, **contexto):
     contexto["request"] = request
     contexto.setdefault("conjunto", None)
-    if contexto["conjunto"] is not None and "cuenta" not in contexto:
-        contexto["cuenta"] = estado_cuenta(contexto["conjunto"])
+    if contexto["conjunto"] is not None:
+        if "cuenta" not in contexto:
+            contexto["cuenta"] = estado_cuenta(contexto["conjunto"])
+        contexto.setdefault(
+            "plan_incluye",
+            {f: plan_permite(contexto["conjunto"], f) for f in FUNCIONES_POR_PLAN},
+        )
     return templates.TemplateResponse(nombre, contexto)
 
 
@@ -251,10 +267,28 @@ DIAS_HASTA_BORRADO = 45
 
 PLANES = {
     "basico": {"nombre": "Cuentas Claras", "nombre_completo": "Cuentas Claras - Auto-administración",
-               "limite": 30, "disponible": True},
-    "medio": {"nombre": "Conjunto en Orden", "limite": 80, "disponible": False},
-    "alto": {"nombre": "Administración Inteligente", "limite": None, "disponible": False},
+               "limite": 30, "disponible": True, "meses_reporte": 3},
+    "medio": {"nombre": "Conjunto en Orden", "limite": 80, "disponible": False, "meses_reporte": 12},
+    "alto": {"nombre": "Administración Inteligente", "limite": None, "disponible": False, "meses_reporte": None},
 }
+
+# Qué funciones incluye cada plan. Lo que no está aquí lo tienen todos.
+# El plan Cuentas Claras (básico) deliberadamente NO incluye: recordatorios
+# automáticos por correo, archivos adjuntos en egresos, cotizaciones en
+# proyectos ni envío del comprobante al vecino.
+FUNCIONES_POR_PLAN = {
+    "recordatorios": ("medio", "alto"),
+    "archivos_egresos": ("medio", "alto"),
+    "envio_comprobante_vecino": ("medio", "alto"),
+    "cotizaciones": ("alto",),
+}
+
+
+def plan_permite(conjunto, funcion: str) -> bool:
+    planes = FUNCIONES_POR_PLAN.get(funcion)
+    if planes is None:
+        return True
+    return (getattr(conjunto, "plan_nombre", None) or "basico") in planes
 
 
 def _es_cuenta_demo(conjunto) -> bool:
@@ -1292,16 +1326,30 @@ def pago_nuevo_submit(
         recibo=recibo,
     )
 
-    # Mandárselo también al vecino que pagó es opcional.
-    destino = correo_destino.strip()
-    if destino:
+    # El comprobante también va al correo con el que entra el administrador,
+    # cuando es distinto del correo de la cuenta: así le queda a la mano sin
+    # tener que buscarlo. En planes superiores además se le puede mandar al
+    # vecino que pagó.
+    otros = []
+    login = (conjunto.login_email or "").strip()
+    if login and login.lower() != (conjunto.cuenta_email or "").strip().lower():
+        otros.append(login)
+    destino = correo_destino.strip() if plan_permite(conjunto, "envio_comprobante_vecino") else ""
+    if destino and destino.lower() not in [o.lower() for o in otros]:
+        otros.append(destino)
+
+    if otros:
         cuerpo = templates.get_template("correo_comprobante.html").render(recibo=recibo, conjunto=conjunto)
-        enviar_correo(
-            destino,
-            f"Comprobante de pago - {conjunto.nombre} - Folio {folio}",
-            cuerpo,
-            adjuntos,
-        )
+        for correo in otros:
+            try:
+                enviar_correo(
+                    correo,
+                    f"Comprobante de pago - {conjunto.nombre} - Folio {folio}",
+                    cuerpo,
+                    adjuntos,
+                )
+            except Exception:
+                pass
 
     return RedirectResponse(
         f"/comprobantes/{folio}?vecino={'1' if destino else '0'}", status_code=302
@@ -1516,6 +1564,15 @@ def proyectos_lista(request: Request, conjunto=Depends(requerir_login), db: Sess
     )
 
 
+@app.get("/proyectos/nuevo", response_class=HTMLResponse)
+def proyecto_nuevo_form(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    """El alta de un proyecto tiene su propia página, sin la lista debajo."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return tpl(request, "proyecto_nuevo.html", conjunto=conjunto, estados=ESTADOS_PROYECTO,
+               error_pct=request.query_params.get("error_pct") == "1")
+
+
 @app.post("/proyectos/nuevo")
 async def proyecto_nuevo(
     request: Request,
@@ -1528,6 +1585,9 @@ async def proyecto_nuevo(
     estado: str = Form("por_iniciar"),
     comentario_estado: str = Form(""),
     financiamiento: str = Form("fondo"),
+    proveedor_nombre: str = Form(""),
+    proveedor_email: str = Form(""),
+    proveedor_telefono: str = Form(""),
     financiamiento_pct_fondo: str = Form(""),
     cot1: UploadFile | None = File(None),
     cot1_proveedor: str = Form(""),
@@ -1552,7 +1612,12 @@ async def proyecto_nuevo(
 
     pct_fondo = _monto_cot(financiamiento_pct_fondo)
     if financiamiento == "mixto" and (pct_fondo is None or not 0 < pct_fondo < 100):
-        return RedirectResponse("/proyectos?error_pct=1", status_code=302)
+        return RedirectResponse("/proyectos/nuevo?error_pct=1", status_code=302)
+    if not proveedor_nombre.strip():
+        return RedirectResponse(
+            "/proyectos?error=" + urllib.parse.quote("Falta el nombre del proveedor del proyecto."),
+            status_code=302,
+        )
     por_prop, ajuste = reparto_proyecto(
         conjunto, monto_total,
         financiamiento=financiamiento or "cuota",
@@ -1568,6 +1633,9 @@ async def proyecto_nuevo(
         descripcion_detalle=descripcion_detalle or None,
         compromisos_proveedor=compromisos_proveedor or None,
         monto_total=monto_total,
+        proveedor_nombre=proveedor_nombre.strip()[:200],
+        proveedor_email=(proveedor_email or "").strip()[:200] or None,
+        proveedor_telefono=(proveedor_telefono or "").strip()[:50] or None,
         monto_por_propiedad=por_prop,
         ajuste_centavos_fondo=ajuste or None,
         fecha_limite_pago=dt.datetime.strptime(fecha_limite_pago, "%Y-%m-%d").date()
@@ -1623,6 +1691,9 @@ async def proyecto_editar_submit(
     estado: str = Form("por_iniciar"),
     comentario_estado: str = Form(""),
     financiamiento: str = Form("cuota"),
+    proveedor_nombre: str = Form(""),
+    proveedor_email: str = Form(""),
+    proveedor_telefono: str = Form(""),
     financiamiento_pct_fondo: str = Form(""),
     cot1: UploadFile | None = File(None),
     cot1_proveedor: str = Form(""),
@@ -1655,6 +1726,10 @@ async def proyecto_editar_submit(
     if financiamiento == "mixto" and (pct_fondo is None or not 0 < pct_fondo < 100):
         return RedirectResponse(f"/proyectos/{proyecto.id}/editar?error_pct=1", status_code=302)
 
+    if proveedor_nombre.strip():
+        proyecto.proveedor_nombre = proveedor_nombre.strip()[:200]
+    proyecto.proveedor_email = (proveedor_email or "").strip()[:200] or None
+    proyecto.proveedor_telefono = (proveedor_telefono or "").strip()[:50] or None
     proyecto.concepto = concepto
     proyecto.descripcion = descripcion or None
     proyecto.descripcion_detalle = descripcion_detalle or None
@@ -2115,7 +2190,7 @@ def pago_checkout(request: Request, conjunto=Depends(requerir_login), db: Sessio
         return RedirectResponse("/pago?error=" + urllib.parse.quote(
             "El cobro todavía no está configurado. Escríbenos por WhatsApp para activarlo."), status_code=302)
     if conjunto.stripe_status == "active" and conjunto.stripe_subscription_id and not conjunto.morosidad_desde:
-        return RedirectResponse("/configuracion?ya_suscrito=1", status_code=302)
+        return RedirectResponse("/configuracion/cuenta?ya_suscrito=1", status_code=302)
 
     base = url_base(request)
     datos = dict(
@@ -2166,11 +2241,11 @@ def configuracion_metodo_pago(request: Request, conjunto=Depends(requerir_login)
             )
             return RedirectResponse(portal.url, status_code=303)
         except Exception as e:
-            return _contexto_configuracion(request, conjunto, mensaje_pago="Stripe no pudo abrir el portal: " + str(e)[:200])
+            return _contexto_configuracion(request, conjunto, "config_cuenta.html", mensaje_pago="Stripe no pudo abrir el portal: " + str(e)[:200])
     if STRIPE_PORTAL_URL:
         return RedirectResponse(STRIPE_PORTAL_URL, status_code=303)
     return _contexto_configuracion(
-        request, conjunto,
+        request, conjunto, "config_cuenta.html",
         mensaje_pago="Todavía no tienes una suscripción. Primero suscríbete desde «Planes y pago»; después aquí podrás cambiar tu tarjeta o ver tus facturas.",
     )
 
@@ -2467,6 +2542,24 @@ def _adjuntos_de_egreso(egreso) -> list[str]:
     return [r for r in rutas if r]
 
 
+def _contexto_egreso_nuevo(request, conjunto, **extra):
+    """Datos para la página de alta de un egreso (sin la lista)."""
+    ultimo_monto_por_concepto = {}
+    for e in sorted(conjunto.egresos, key=lambda e: (e.fecha, e.id)):
+        ultimo_monto_por_concepto[e.concepto] = e.monto
+    contexto = dict(
+        conjunto=conjunto,
+        hoy=dt.date.today().isoformat(),
+        formas_pago=models.FORMAS_PAGO_EGRESO,
+        conceptos_previos=sorted(ultimo_monto_por_concepto.keys()),
+        montos_por_concepto=ultimo_monto_por_concepto,
+        error=None,
+        previo={},
+    )
+    contexto.update(extra)
+    return contexto
+
+
 def _contexto_egresos(request, conjunto, **extra):
     egresos = sorted(conjunto.egresos, key=lambda e: (e.fecha, e.id), reverse=True)
     hoy = dt.date.today()
@@ -2534,6 +2627,15 @@ def egreso_archivo(
     return FileResponse(ruta, media_type=tipo, filename=nombre, content_disposition_type="inline")
 
 
+@app.get("/egresos/nuevo", response_class=HTMLResponse)
+def egreso_nuevo_form(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    """El alta de un egreso tiene su propia página: sin la lista debajo, para
+    no distraer mientras se captura."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return tpl(request, "egreso_nuevo.html", **_contexto_egreso_nuevo(request, conjunto))
+
+
 @app.post("/egresos/nuevo")
 async def egreso_nuevo(
     request: Request,
@@ -2557,10 +2659,15 @@ async def egreso_nuevo(
     archivos = {"recibo": recibo, "xml": xml, "comprobante": comprobante}
 
     error = None
+    # Los archivos adjuntos son una función de los planes superiores: en el
+    # plan básico el egreso es un registro simple y no se piden.
+    if not plan_permite(conjunto, "archivos_egresos"):
+        archivos = {"recibo": None, "xml": None, "comprobante": None}
     modo_simplificado = (conjunto.modo_interfaz or "simplificado") != "completo"
+    pide_recibo = plan_permite(conjunto, "archivos_egresos") and not modo_simplificado
     if forma_pago not in models.FORMAS_PAGO_EGRESO_DICT:
         error = "Elige la forma en que se hizo el pago."
-    elif not modo_simplificado and not _archivo_subido(recibo):
+    elif pide_recibo and not _archivo_subido(recibo):
         error = "Falta subir el recibo o factura (foto o PDF). Si el proveedor no dio recibo, sube la foto de una nota firmada."
     else:
         for campo, archivo in archivos.items():
@@ -2569,7 +2676,8 @@ async def egreso_nuevo(
                 if error:
                     break
     if error:
-        return _contexto_egresos(request, conjunto, error=error, previo=previo, abrir_formulario=True)
+        return tpl(request, "egreso_nuevo.html",
+                   **_contexto_egreso_nuevo(request, conjunto, error=error, previo=previo))
 
     rutas = {
         campo: _guardar_archivo_egreso(archivo, conjunto.id, campo)
@@ -2628,6 +2736,8 @@ async def egreso_editar(
         return RedirectResponse("/egresos", status_code=302)
 
     archivos = {"recibo": recibo, "xml": xml, "comprobante": comprobante}
+    if not plan_permite(conjunto, "archivos_egresos"):
+        archivos = {"recibo": None, "xml": None, "comprobante": None}
     error = None
     if forma_pago and forma_pago not in models.FORMAS_PAGO_EGRESO_DICT:
         error = "Elige la forma en que se hizo el pago."
@@ -3004,6 +3114,10 @@ def enviar_recordatorios_inicio_mes():
         hoy = dt.date.today()
         mes_nombre = mes_titulo(hoy.year, hoy.month)
         for conjunto in db.query(models.Conjunto).filter_by(recordatorios_activos=True).all():
+            # Los recordatorios automáticos son una función de los planes
+            # superiores: en el plan básico no se manda ninguno.
+            if not plan_permite(conjunto, "recordatorios"):
+                continue
             monto_mes = conjunto.monto_vigente_en(hoy.replace(day=1))
             for propiedad in conjunto.propiedades:
                 if not propiedad.activo:
@@ -3031,6 +3145,8 @@ def enviar_recordatorios_limite():
         hoy = dt.date.today()
         inicio_mes = hoy.replace(day=1)
         for conjunto in db.query(models.Conjunto).filter_by(recordatorios_activos=True).all():
+            if not plan_permite(conjunto, "recordatorios"):
+                continue
             if conjunto.fecha_limite_pago - 1 != hoy.day:
                 continue
             monto_normal = conjunto.monto_vigente_en(inicio_mes)
@@ -3060,7 +3176,7 @@ def enviar_recordatorios_limite():
 # revisión, contraseña, método de pago (Stripe), propiedades y traspaso.
 # ---------------------------------------------------------------------------
 
-def _contexto_configuracion(request, conjunto, **extra):
+def _contexto_configuracion(request, conjunto, plantilla="configuracion.html", **extra):
     base = dict(
         conjunto=conjunto,
         hoy=dt.date.today().isoformat(),
@@ -3069,6 +3185,8 @@ def _contexto_configuracion(request, conjunto, **extra):
         error_borrado=None,
         error_recuperacion=None,
         exito_recuperacion=False,
+        error_cuenta_email=None,
+        exito_cuenta_email=False,
         mensaje_pago=None,
         opciones_revision=OPCIONES_REVISION,
         propiedades=sorted(conjunto.propiedades, key=orden_natural),
@@ -3079,14 +3197,66 @@ def _contexto_configuracion(request, conjunto, **extra):
         borrada=request.query_params.get("borrada"),
     )
     base.update(extra)
-    return tpl(request, "configuracion.html", **base)
+    return tpl(request, plantilla, **base)
 
 
+# Configuración está partida en secciones: la portada solo lleva a cada una,
+# y cada sección es su propia página con su botón para regresar.
 @app.get("/configuracion", response_class=HTMLResponse)
 def configuracion_ver(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     return _contexto_configuracion(request, conjunto)
+
+
+@app.get("/configuracion/interfaz", response_class=HTMLResponse)
+def configuracion_interfaz(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return _contexto_configuracion(request, conjunto, "config_interfaz.html")
+
+
+@app.get("/configuracion/conjunto", response_class=HTMLResponse)
+def configuracion_conjunto(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return _contexto_configuracion(request, conjunto, "config_conjunto.html")
+
+
+@app.get("/configuracion/propiedades", response_class=HTMLResponse)
+def configuracion_propiedades(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return _contexto_configuracion(request, conjunto, "config_propiedades.html")
+
+
+@app.get("/configuracion/cuenta", response_class=HTMLResponse)
+def configuracion_cuenta(request: Request, conjunto=Depends(requerir_login), db: Session = Depends(get_db)):
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    return _contexto_configuracion(request, conjunto, "config_cuenta.html")
+
+
+@app.post("/configuracion/cuenta-email")
+def configuracion_cuenta_email(
+    request: Request,
+    cuenta_email: str = Form(...),
+    conjunto=Depends(requerir_login),
+    db: Session = Depends(get_db),
+):
+    """El correo de la cuenta: a donde llegan comprobantes, reportes y avisos.
+    No cambia cuando cambia el administrador en turno."""
+    if not conjunto:
+        return RedirectResponse("/login", status_code=302)
+    correo = (cuenta_email or "").strip()
+    if not _parece_correo(correo):
+        return _contexto_configuracion(
+            request, conjunto, "config_cuenta.html",
+            error_cuenta_email="Ese correo no parece válido. Revísalo e inténtalo de nuevo.",
+        )
+    conjunto.cuenta_email = correo
+    db.commit()
+    return _contexto_configuracion(request, conjunto, "config_cuenta.html", exito_cuenta_email=True)
 
 
 @app.post("/configuracion/monto")
@@ -3108,7 +3278,7 @@ def configuracion_monto(
         conjunto.monto_mensual = nuevo_monto
         conjunto.monto_confirmado_en = dt.date.today()
     db.commit()
-    return RedirectResponse("/configuracion", status_code=302)
+    return RedirectResponse("/configuracion/conjunto", status_code=302)
 
 
 @app.post("/configuracion/revision")
@@ -3127,7 +3297,7 @@ def configuracion_revision(
     conjunto.monto_revision_meses = monto_revision_meses
     conjunto.monto_confirmado_en = dt.date.today()
     db.commit()
-    return RedirectResponse("/configuracion", status_code=302)
+    return RedirectResponse("/configuracion/conjunto", status_code=302)
 
 
 @app.post("/configuracion/monto-tardio")
@@ -3153,7 +3323,7 @@ def configuracion_monto_tardio(
     conjunto.aplica_recargo_tardio = activo and bool(monto)
     conjunto.monto_mensual_tardio = monto
     db.commit()
-    return RedirectResponse("/configuracion", status_code=302)
+    return RedirectResponse("/configuracion/conjunto", status_code=302)
 
 
 @app.post("/configuracion/recordatorios")
@@ -3175,7 +3345,7 @@ async def configuracion_recordatorios(
     conjunto.recordatorio_msg_dia = recordatorio_msg_dia.strip() or None
     conjunto.recordatorio_msg_vencido = recordatorio_msg_vencido.strip() or None
     db.commit()
-    return RedirectResponse("/configuracion", status_code=302)
+    return RedirectResponse("/configuracion/conjunto", status_code=302)
 
 
 @app.post("/configuracion/fecha-limite")
@@ -3192,21 +3362,24 @@ def configuracion_fecha_limite(
         return RedirectResponse("/login", status_code=302)
     conjunto.fecha_limite_pago = min(max(int(fecha_limite_pago), 1), 31)
     db.commit()
-    return RedirectResponse("/configuracion", status_code=302)
+    return RedirectResponse("/configuracion/conjunto", status_code=302)
 
 
 @app.post("/configuracion/direccion")
 def configuracion_direccion(
     request: Request,
     direccion: str = Form(""),
+    nombre: str = Form(""),
     conjunto=Depends(requerir_login),
     db: Session = Depends(get_db),
 ):
     if not conjunto:
         return RedirectResponse("/login", status_code=302)
     conjunto.direccion = direccion.strip()
+    if nombre.strip():
+        conjunto.nombre = nombre.strip()[:120]
     db.commit()
-    return RedirectResponse("/configuracion", status_code=302)
+    return RedirectResponse("/configuracion/conjunto", status_code=302)
 
 
 @app.post("/configuracion/recuperacion")
@@ -3226,12 +3399,12 @@ def configuracion_recuperacion(
     correo_recuperacion = correo_recuperacion.strip()
     if correo_recuperacion and not _parece_correo(correo_recuperacion):
         return _contexto_configuracion(
-            request, conjunto,
+            request, conjunto, "config_cuenta.html",
             error_recuperacion=f"«{correo_recuperacion}» no parece un correo electrónico.",
         )
     conjunto.correo_recuperacion = correo_recuperacion or None
     db.commit()
-    return _contexto_configuracion(request, conjunto, exito_recuperacion=True)
+    return _contexto_configuracion(request, conjunto, "config_cuenta.html", exito_recuperacion=True)
 
 
 @app.post("/configuracion/propiedades/{propiedad_id}/editar")
@@ -3262,7 +3435,7 @@ def configuracion_propiedad_editar(
         id=propiedad_id, conjunto_id=conjunto.id
     ).first()
     if not propiedad:
-        return RedirectResponse("/configuracion", status_code=302)
+        return RedirectResponse("/configuracion/propiedades", status_code=302)
 
     error = _guardar_ficha_propiedad(
         propiedad,
@@ -3331,7 +3504,7 @@ def configuracion_borrar_cuenta(
     # borraría el conjunto de ejemplo para todos los demás.
     if MODO_DEMO:
         return _contexto_configuracion(
-            request, conjunto,
+            request, conjunto, "config_cuenta.html",
             error_borrado="En la versión de demostración no se puede borrar la cuenta: "
                           "se la llevaría también a las demás personas que están viendo el ejemplo. "
                           "En una cuenta real el botón funciona.",
@@ -3339,12 +3512,12 @@ def configuracion_borrar_cuenta(
 
     if not bcrypt.verify(password, conjunto.password_hash):
         return _contexto_configuracion(
-            request, conjunto, error_borrado="La contraseña no es correcta."
+            request, conjunto, "config_cuenta.html", error_borrado="La contraseña no es correcta."
         )
 
     if confirmacion.strip().lower() != (conjunto.nombre or "").strip().lower():
         return _contexto_configuracion(
-            request, conjunto,
+            request, conjunto, "config_cuenta.html",
             error_borrado=f"Para confirmar, escribe exactamente el nombre del conjunto: «{conjunto.nombre}».",
         )
 
@@ -3392,11 +3565,11 @@ def configuracion_password(
         return RedirectResponse("/login", status_code=302)
     if not bcrypt.verify(password_actual, conjunto.password_hash):
         return _contexto_configuracion(
-            request, conjunto, error_password="La contraseña actual no es correcta."
+            request, conjunto, "config_cuenta.html", error_password="La contraseña actual no es correcta."
         )
     conjunto.password_hash = bcrypt.hash(password_nueva)
     db.commit()
-    return _contexto_configuracion(request, conjunto, exito_password=True)
+    return _contexto_configuracion(request, conjunto, "config_cuenta.html", exito_password=True)
 
 
 @app.post("/configuracion/propiedades/nueva")
@@ -3602,14 +3775,38 @@ def administrador_actualizar(
     )
 
     conjunto.admin_nombre = admin_nombre_nuevo
-    conjunto.login_email = login_email_nuevo
+    conjunto.login_email = login_email_nuevo.strip().lower()
     conjunto.password_hash = bcrypt.hash(password_nueva)
     if correo_recuperacion_nuevo:
         conjunto.correo_recuperacion = correo_recuperacion_nuevo
     db.commit()
 
+    _avisar_traspaso(conjunto, admin_anterior, admin_nombre_nuevo)
+
     request.session.clear()
     return RedirectResponse("/login?traspaso=1", status_code=302)
+
+
+def _avisar_traspaso(conjunto, admin_anterior: str, admin_nuevo: str):
+    """Avisa del cambio de administrador a los propietarios con correo
+    registrado, y al correo de la cuenta. Un traspaso es información del
+    conjunto entero, no solo de quien entrega."""
+    cuerpo = templates.get_template("correo_traspaso.html").render(
+        conjunto=conjunto, admin_anterior=admin_anterior, admin_nuevo=admin_nuevo,
+        fecha=dt.date.today().strftime("%d/%m/%Y"),
+    )
+    asunto = f"Cambio de administrador en {conjunto.nombre}"
+
+    destinos = []
+    for correo in [conjunto.cuenta_email] + [p.email_dueno for p in conjunto.propiedades if p.activo]:
+        correo = (correo or "").strip()
+        if correo and _parece_correo(correo) and correo.lower() not in [d.lower() for d in destinos]:
+            destinos.append(correo)
+    for d in destinos:
+        try:
+            enviar_correo(d, asunto, cuerpo)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

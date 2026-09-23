@@ -341,6 +341,12 @@ class Proyecto(Base):
     financiamiento = Column(String(20), nullable=True)
     financiamiento_pct_fondo = Column(Float, nullable=True)  # % del fondo en modo mixto (0-100)
 
+    # Proveedor que ejecuta el proyecto. El nombre es obligatorio; el correo y
+    # el teléfono son opcionales pero muy útiles para el siguiente administrador.
+    proveedor_nombre = Column(String(200), nullable=True)
+    proveedor_email = Column(String(200), nullable=True)
+    proveedor_telefono = Column(String(50), nullable=True)
+
     # Fecha en que se marcó como terminado
     terminado_en = Column(DateTime, nullable=True)
 
