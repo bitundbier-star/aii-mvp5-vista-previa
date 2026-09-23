@@ -70,7 +70,7 @@ def generar_pdf_reporte(conjunto, reporte: dict, version: str = "detalle") -> by
     pdf.cell(0, 9, f"Reporte mensual — {reporte['periodo']}", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Poppins", "", 10)
     pdf.set_text_color(*GRIS)
-    sub = f"{conjunto.nombre}  ·  Administra {conjunto.admin_nombre}"
+    sub = f"{conjunto.nombre}  ·  Administra {reporte.get('administrador') or conjunto.admin_nombre}"
     if getattr(conjunto, "direccion", ""):
         sub += f"  ·  {conjunto.direccion}"
     pdf.multi_cell(0, 5, sub, align="L", new_x="LMARGIN", new_y="NEXT")

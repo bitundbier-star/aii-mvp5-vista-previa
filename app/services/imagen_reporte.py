@@ -80,7 +80,7 @@ def generar_imagen_reporte(conjunto, reporte: dict) -> str:
     y += 48
     draw.text(
         (MARGEN, y),
-        f"Reporte de {reporte['periodo']} · Administra {conjunto.admin_nombre}",
+        f"Reporte de {reporte['periodo']} · Administra {reporte.get('administrador') or conjunto.admin_nombre}",
         font=f_sub, fill=GRIS,
     )
     y += 46

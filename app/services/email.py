@@ -11,7 +11,7 @@ import smtplib
 import uuid
 from email.message import EmailMessage
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+from ..database import DATA_DIR
 CORREOS_DIR = os.path.join(DATA_DIR, "correos_enviados")
 os.makedirs(CORREOS_DIR, exist_ok=True)
 

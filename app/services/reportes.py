@@ -47,7 +47,12 @@ def mes_reportable(al_dia: dt.date | None = None) -> tuple[int, int]:
     return _mes_anterior(al_dia.year, al_dia.month)
 
 
-def meses_disponibles(conjunto: Conjunto, al_dia: dt.date | None = None) -> list[dict]:
+# Cuántos meses cerrados se pueden consultar como reporte según el plan. Los
+# meses anteriores no se borran: siguen completos en el historial descargable.
+MESES_REPORTE_POR_PLAN = {"basico": 2, "medio": 6, "alto": None}
+
+
+def meses_disponibles(conjunto: Conjunto, al_dia: dt.date | None = None, todos: bool = False) -> list[dict]:
     """Todos los meses cerrados desde que arrancó la cuenta, del más nuevo al
     más viejo. Los históricos no caducan: se pueden consultar siempre. Lo único
     que se mueve es cuál es "el nuevo" — durante todo octubre el nuevo es
@@ -69,6 +74,9 @@ def meses_disponibles(conjunto: Conjunto, al_dia: dt.date | None = None) -> list
             }
         )
         anio, mes = _mes_anterior(anio, mes)
+        limite = None if todos else MESES_REPORTE_POR_PLAN.get(getattr(conjunto, "plan_nombre", None) or "basico", 2)
+        if limite and len(meses) >= limite:
+            break
         if len(meses) >= 120:
             break
     return meses
@@ -105,6 +113,27 @@ def saldo_acumulado_teorico(conjunto: Conjunto, hasta: dt.date | None = None) ->
         )
     egresos = sum(e.monto for e in conjunto.egresos if e.fecha <= hasta)
     return round((conjunto.saldo_inicial or 0.0) + ingresos - egresos, 2)
+
+
+def administrador_del_mes(conjunto: Conjunto, anio: int, mes: int) -> str:
+    """Quién administraba el conjunto ese mes (no quién administra hoy). Si
+    hubo traspaso a mitad del mes, salen los dos: «Ana (hasta el 14/03) y Luis»."""
+    cambios = sorted(getattr(conjunto, "cambios_admin", []) or [], key=lambda c: c.fecha)
+    primero = dt.date(anio, mes, 1)
+    ultimo = ultimo_dia(anio, mes)
+    # Quién estaba al empezar el mes
+    en_turno = cambios[0].admin_anterior if cambios else conjunto.admin_nombre
+    for c in cambios:
+        if c.fecha.date() < primero:
+            en_turno = c.admin_nuevo
+    partes = []
+    for c in cambios:
+        f = c.fecha.date()
+        if primero <= f <= ultimo:
+            partes.append(f"{en_turno} (hasta el {f.strftime('%d/%m')})")
+            en_turno = c.admin_nuevo
+    partes.append(en_turno)
+    return " y ".join(partes)
 
 
 def datos_reporte(
@@ -170,17 +199,25 @@ def datos_reporte(
         if not proyecto.en_curso or proyecto.fecha_alta > ultimo:
             continue
         total = round(proyecto.monto_total, 2)
-        recaudado = round(
+        de_vecinos = round(
             sum(p.monto for p in proyecto.pagos if p.fecha_recepcion <= ultimo and not p.cancelado), 2
         )
+        del_fondo = round(proyecto.monto_del_fondo, 2)
+        recaudado = round(min(del_fondo + de_vecinos, total), 2)
+        n_activas = sum(1 for pr in conjunto.propiedades if pr.activo)
+        meta_vecinos = round((proyecto.monto_por_propiedad or 0.0) * n_activas, 2)
         proyectos_en_curso.append(
             {
                 "proyecto": proyecto,
                 "nombre": proyecto.concepto,
                 "monto_total": total,
+                "monto_del_fondo": del_fondo,
+                "recaudado_vecinos": de_vecinos,
                 "recaudado": recaudado,
-                "falta": round(max(total - recaudado, 0.0), 2),
+                "falta": round(max(meta_vecinos - de_vecinos, 0.0), 2),
                 "avance": round(100 * recaudado / total, 1) if total else 0.0,
+                "financiamiento_legible": proyecto.financiamiento_legible,
+                "ajuste_centavos_fondo": proyecto.ajuste_centavos_fondo or 0.0,
             }
         )
 
@@ -191,6 +228,7 @@ def datos_reporte(
     )
 
     return {
+        "administrador": administrador_del_mes(conjunto, anio, mes),
         "conjunto": conjunto,
         "generado_en": dt.datetime.now(),
         "anio": anio,

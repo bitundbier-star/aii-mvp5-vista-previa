@@ -6,32 +6,66 @@ está borrando lo suyo — está borrando las cuentas de todos sus vecinos, incl
 los comprobantes que ya les entregó. Ofrecerle la descarga convierte una
 decisión abstracta en una concreta, y le deja algo en la mano si se arrepiente.
 
-El ZIP trae dos cosas, porque sirven para cosas distintas:
+El ZIP trae:
 
-* **Archivos CSV** — se abren en Excel. Son los datos crudos, para seguir
-  trabajando con ellos o cargarlos en otro lado. Llevan marca de orden de bytes
-  para que Excel no destroce los acentos.
+* **historial.xlsx** — un solo Excel con una pestaña por tabla (propiedades,
+  pagos, egresos, proyectos, cartera). Son los datos para seguir trabajando.
 * **historial.html** — se abre de doble clic y se lee. Es la versión para
   imprimir, guardar o mandarle a la asamblea.
-
-No agrega ninguna dependencia: `zipfile` y `csv` vienen con Python.
+* **comprobantes/** — el PDF de cada comprobante de pago que se entregó.
+* **archivos_egresos/** — los recibos, XML y comprobantes de cada egreso.
 """
-import csv
 import datetime as dt
 import io
+import os
 import zipfile
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from .cartera import estado_conjunto, orden_natural
 from .formato import dinero, estado_saldo, mes_titulo
 from .reportes import datos_reporte, meses_disponibles, saldo_acumulado
 
 
-def _csv(encabezados, filas) -> bytes:
-    buffer = io.StringIO()
-    escritor = csv.writer(buffer)
-    escritor.writerow(encabezados)
-    escritor.writerows(filas)
-    return buffer.getvalue().encode("utf-8-sig")
+def _csv(encabezados, filas):
+    """Antes cada tabla salía en un CSV; ahora cada una es una pestaña del
+    mismo Excel. Se conserva el nombre para no tocar las funciones de abajo."""
+    return (encabezados, filas)
+
+
+def _num(v):
+    try:
+        return round(float(v), 2)
+    except (TypeError, ValueError):
+        return v
+
+
+def _excel(hojas: list[tuple[str, tuple]]) -> bytes:
+    wb = Workbook()
+    wb.remove(wb.active)
+    encabezado = Font(bold=True, color="FFFFFF")
+    fondo = PatternFill("solid", fgColor="176BA0")
+    for titulo, (encabezados, filas) in hojas:
+        ws = wb.create_sheet(titulo[:31])
+        ws.append(encabezados)
+        for c in ws[1]:
+            c.font = encabezado
+            c.fill = fondo
+            c.alignment = Alignment(vertical="center", wrap_text=True)
+        for fila in filas:
+            ws.append(fila)
+        for i, enc in enumerate(encabezados, start=1):
+            largo = max([len(str(enc))] + [len(str(f[i - 1])) for f in filas[:300] if i - 1 < len(f)])
+            ws.column_dimensions[get_column_letter(i)].width = min(max(10, largo + 2), 48)
+            if any(k in enc.lower() for k in ("monto", "saldo", "recaudado", "esperado", "pagado", "fondo")):
+                for (celda,) in ws.iter_rows(min_row=2, min_col=i, max_col=i):
+                    celda.number_format = '$#,##0.00'
+        ws.freeze_panes = "A2"
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
 
 
 def _propiedades(conjunto):
@@ -43,7 +77,7 @@ def _propiedades(conjunto):
             p.celular_dueno or "", p.email_dueno or "",
             p.nombre_residente or "", p.celular_residente or "",
             p.email_residente or "", p.notas or "",
-            f"{abs(p.saldo_inicial):.2f}", est["palabra"],
+            _num(abs(p.saldo_inicial)), est["palabra"],
             "Sí" if p.activo else "No",
         ])
     return _csv([
@@ -60,28 +94,33 @@ def _pagos(conjunto):
             p.folio_recibo, p.folio, p.fecha_recepcion.isoformat(), p.propiedad.numero,
             p.propiedad.nombre_dueno or "", p.concepto_legible,
             p.proyecto.concepto if p.proyecto else "",
-            p.metodo_pago_legible, f"{p.monto:.2f}",
+            p.metodo_pago_legible, _num(p.monto),
             "Sí" if (p.abona_a_cartera and not p.cancelado) else "No",
             "Sí" if p.cancelado else "No",
+            p.cancelado_en.strftime("%Y-%m-%d %H:%M") if p.cancelado and p.cancelado_en else "",
+            (p.concepto_descripcion or "Movimiento interno") if getattr(p, "interno", False) else "",
         ])
     return _csv([
         "Folio del comprobante", "Folio de la partida", "Fecha", "Propiedad", "Propietario",
         "Concepto", "Proyecto", "Método de pago", "Monto", "Baja la deuda", "Cancelado",
+        "Cancelado el (UTC)", "Movimiento interno del sistema",
     ], filas)
 
 
 def _egresos(conjunto):
     filas = [
         [
-            e.fecha.isoformat(), e.concepto, e.forma_pago_legible, f"{e.monto:.2f}",
+            e.fecha.isoformat(), e.concepto, e.forma_pago_legible, _num(e.monto),
+            e.proyecto.concepto if e.proyecto else "",
             "Sí" if e.recibo_path else "No", "Sí" if e.xml_path else "No",
             "Sí" if e.comprobante_path else "No",
+            "Sí" if getattr(e, "automatico", False) else "No",
         ]
         for e in sorted(conjunto.egresos, key=lambda x: (x.fecha, x.id))
     ]
     return _csv(
-        ["Fecha", "Concepto", "Forma de pago", "Monto", "Tiene recibo o factura", "Tiene XML",
-         "Tiene comprobante de pago"],
+        ["Fecha", "Concepto", "Forma de pago", "Monto", "Proyecto", "Tiene recibo o factura", "Tiene XML",
+         "Tiene comprobante de pago", "Registrado por el sistema"],
         filas,
     )
 
@@ -89,16 +128,27 @@ def _egresos(conjunto):
 def _proyectos(conjunto):
     filas = []
     for p in sorted(conjunto.proyectos, key=lambda x: (x.fecha_alta, x.id)):
+        if getattr(p, "eliminado", False):
+            estado = "Eliminado"
+        else:
+            estado = p.estado_legible
         filas.append([
             p.concepto, p.descripcion or "", p.fecha_alta.isoformat(),
             p.fecha_limite_pago.isoformat() if p.fecha_limite_pago else "",
-            p.estado, p.comentario_estado or "",
-            f"{p.monto_total:.2f}", f"{p.monto_por_propiedad:.2f}",
-            f"{p.total_recaudado:.2f}",
+            estado, p.comentario_estado or "", p.financiamiento_legible,
+            _num(p.monto_total), _num(p.monto_por_propiedad), _num(p.monto_del_fondo),
+            _num(p.ajuste_centavos_fondo or 0), _num(p.total_recaudado),
+            p.terminado_en.strftime("%Y-%m-%d") if p.terminado_en else "",
+            p.cancelado_en.strftime("%Y-%m-%d") if p.cancelado and p.cancelado_en else "",
+            (p.cancelado_motivo or "") if p.cancelado else "",
+            p.eliminado_en.strftime("%Y-%m-%d") if getattr(p, "eliminado", False) and p.eliminado_en else "",
+            (p.eliminado_motivo or "") if getattr(p, "eliminado", False) else "",
         ])
     return _csv([
         "Proyecto", "Descripción", "Fecha de alta", "Fecha límite", "Estado",
-        "Comentario", "Monto total", "Monto por propiedad", "Recaudado",
+        "Comentario", "Financiamiento", "Monto total", "Monto por propiedad", "Monto del fondo",
+        "Redondeo que absorbe el fondo", "Recaudado de vecinos",
+        "Terminado el", "Cancelado el", "Motivo de cancelación", "Eliminado el", "Motivo de eliminación",
     ], filas)
 
 
@@ -107,8 +157,8 @@ def _cartera(conjunto):
     for e in estado_conjunto(conjunto):
         filas.append([
             e["propiedad"].numero, e["propiedad"].nombre_dueno or "",
-            f"{e['total_esperado']:.2f}", f"{e['total_pagado']:.2f}",
-            f"{abs(e['saldo']):.2f}", e["vista"]["palabra"],
+            _num(e['total_esperado']), _num(e['total_pagado']),
+            _num(abs(e['saldo'])), e["vista"]["palabra"],
         ])
     return _csv(
         ["Propiedad", "Propietario", "Esperado", "Pagado", "Saldo", "Situación"],
@@ -119,7 +169,7 @@ def _cartera(conjunto):
 def _historial_html(conjunto) -> bytes:
     hoy = dt.date.today()
     estado = estado_conjunto(conjunto)
-    meses = meses_disponibles(conjunto)
+    meses = meses_disponibles(conjunto, todos=True)
 
     filas_cartera = "".join(
         f"<tr><td>{e['propiedad'].numero}</td>"
@@ -135,7 +185,7 @@ def _historial_html(conjunto) -> bytes:
     for m in meses:
         r = datos_reporte(conjunto, m["anio"], m["mes"])
         filas_meses += (
-            f"<tr><td>{r['periodo']}</td>"
+            f"<tr><td>{r['periodo']}<br><small style='color:#666'>Administra {r.get('administrador', '')}</small></td>"
             f"<td class='num'>{dinero(r['saldo_apertura'])}</td>"
             f"<td class='num'>{dinero(r['ingresos_reales'])}</td>"
             f"<td class='num'>{dinero(r['total_egresos'])}</td>"
@@ -163,13 +213,14 @@ def _historial_html(conjunto) -> bytes:
 
 <h1>{conjunto.nombre}</h1>
 {f'<p class="sub">{conjunto.direccion}</p>' if conjunto.direccion else ''}
-<p class="sub">Historial completo · Administrador en turno: {conjunto.admin_nombre}</p>
+<p class="sub">Historial completo · Administrador en turno al descargar: {conjunto.admin_nombre}</p>
 <p class="sub">Generado el {hoy.strftime('%d/%m/%Y')}</p>
 
 <div class="nota">
   Esta es la copia del historial del conjunto al momento de descargarla.
-  Junto a este archivo, en el mismo ZIP, vienen los datos en formato CSV para
-  abrirlos en Excel: propiedades, pagos, egresos, proyectos y cartera.
+  Junto a este archivo, en el mismo ZIP, vienen los datos en un Excel
+  (historial.xlsx, una pestaña por tabla), el PDF de cada comprobante de pago
+  y los recibos y facturas de los egresos.
 </div>
 
 <h2>Resumen</h2>
@@ -210,17 +261,38 @@ def exportar_conjunto(conjunto) -> tuple[bytes, str]:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("historial.html", _historial_html(conjunto))
-        z.writestr("propiedades.csv", _propiedades(conjunto))
-        z.writestr("pagos.csv", _pagos(conjunto))
-        z.writestr("egresos.csv", _egresos(conjunto))
-        z.writestr("proyectos.csv", _proyectos(conjunto))
-        z.writestr("cartera.csv", _cartera(conjunto))
+        z.writestr("historial.xlsx", _excel([
+            ("Propiedades", _propiedades(conjunto)),
+            ("Pagos", _pagos(conjunto)),
+            ("Egresos", _egresos(conjunto)),
+            ("Proyectos", _proyectos(conjunto)),
+            ("Cartera", _cartera(conjunto)),
+        ]))
+
+        # El PDF de cada comprobante entregado (uno por recibo, con todas sus
+        # partidas). Los movimientos internos del sistema no tienen comprobante.
+        from .comprobante import comprobante_pdf
+
+        recibos = {}
+        for p in sorted(conjunto.pagos, key=lambda x: (x.fecha_recepcion, x.id)):
+            if getattr(p, "interno", False):
+                continue
+            recibos.setdefault(p.folio_recibo, []).append(p)
+        for folio, partidas in recibos.items():
+            try:
+                pdf = comprobante_pdf(partidas)
+            except Exception:
+                continue
+            marca = " CANCELADO" if all(x.cancelado for x in partidas) else ""
+            z.writestr(
+                f"comprobantes/{partidas[0].fecha_recepcion.isoformat()} {folio} - {partidas[0].propiedad.etiqueta}{marca}.pdf",
+                pdf,
+            )
 
         # Los archivos de respaldo de cada egreso (recibo, XML, comprobante),
         # en una carpeta por egreso. Quien se lleva el historial se lleva
         # también las facturas.
         from ..database import DATA_DIR
-        import os
 
         carpeta = os.path.join(DATA_DIR, "archivos_egresos")
         estaticos = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")

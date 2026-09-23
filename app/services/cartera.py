@@ -129,20 +129,22 @@ def detalle_proyectos(propiedad: Propiedad, hasta: dt.date | None = None) -> lis
     el reporte de septiembre no puede cobrar un proyecto que nació en octubre.
     """
     conjunto = propiedad.conjunto
-    activas = [p for p in conjunto.propiedades if p.activo]
-    n = len(activas)
-    ajuste = _propiedad_que_absorbe_redondeo(conjunto)
 
+    # Cada propiedad paga exactamente `monto_por_propiedad`. Ese monto ya
+    # descuenta lo que pone el fondo (100% fondo = $0; mixto = solo la parte
+    # de cuota) y está redondeado hacia abajo: los centavos que no se pueden
+    # repartir los absorbe el fondo, nunca una propiedad.
+    # Un proyecto cancelado o eliminado deja de cobrarse: lo que ya se pagó se
+    # resolvió en la cancelación (abono a la cuenta o reembolso).
     detalle = []
     for proyecto in sorted(conjunto.proyectos, key=lambda x: (x.fecha_alta, x.id)):
+        if proyecto.cancelado or getattr(proyecto, "eliminado", False):
+            continue
         if hasta is not None and proyecto.fecha_alta > hasta:
             continue
-        if n == 0:
-            monto = 0.0
-        elif ajuste is not None and propiedad.id == ajuste.id:
-            monto = proyecto.monto_total - proyecto.monto_por_propiedad * (n - 1)
-        else:
-            monto = proyecto.monto_por_propiedad
+        monto = proyecto.monto_por_propiedad or 0.0
+        if monto <= 0:
+            continue
         detalle.append(
             {
                 "proyecto_id": proyecto.id,

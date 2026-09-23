@@ -22,6 +22,7 @@ número.
 """
 import io
 
+import re
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection, Side
 from openpyxl.utils import get_column_letter
@@ -227,6 +228,11 @@ def leer_plantilla(contenido: bytes, conjunto) -> tuple[list[dict], list[str]]:
         numero = str(valores[COL_NUMERO - 1] or "").strip()
         if not numero:
             errores.append(f"Renglón {n_excel} (ID {id_int}): falta el «Número» de la propiedad.")
+        elif len(numero) > 20 or not re.fullmatch(r"[0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ \-|,./#_]+", numero):
+            errores.append(
+                f"Renglón {n_excel} (ID {id_int}): el número «{numero}» solo puede llevar números, letras "
+                "y los símbolos - | , . / # (máximo 20 caracteres)."
+            )
             continue
 
         tipo_texto = str(valores[COL_TIPO - 1] or "").strip()
