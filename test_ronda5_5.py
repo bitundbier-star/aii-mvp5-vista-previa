@@ -23,7 +23,7 @@ check("login demo", r.status_code == 200)
 # --- Estilos versionados y logo ------------------------------------------------
 r = s.get(f"{BASE}/dashboard")
 check("hoja de estilos lleva ?v=", re.search(r'/static/css/style\.css\?v=[0-9a-f]{10}', r.text) is not None)
-check("texto nuevo del encabezado", "Administración inteligente de inmuebles: Auto-administración de residenciales" in r.text)
+check("encabezado con el nombre del conjunto (ronda 5.7)", "Auto-administración de " in r.text)
 check("logo existe", s.get(f"{BASE}/static/img/logo.png").status_code == 200)
 check("logo con nombre existe", s.get(f"{BASE}/static/img/logo-con-nombre.png").status_code == 200)
 check("favicon existe", s.get(f"{BASE}/static/img/favicon.png").status_code == 200)
@@ -107,6 +107,7 @@ png = io.BytesIO()
 from PIL import Image  # noqa: E402
 
 Image.new("RGB", (40, 40), "white").save(png, format="PNG")
+s.post(f"{BASE}/configuracion/modo-interfaz", data={"modo": "completo"})
 r = s.post(f"{BASE}/egresos/nuevo", data={"concepto": "Prueba sin recibo", "monto": "100", "fecha": hoy, "forma_pago": "efectivo"})
 check("egreso sin recibo se rechaza", "Falta subir el recibo" in r.text)
 r = s.post(f"{BASE}/egresos/nuevo", data={"concepto": "Prueba sin forma", "monto": "100", "fecha": hoy},
