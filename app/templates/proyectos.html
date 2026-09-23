@@ -32,7 +32,9 @@
 <h1>Cuotas extraordinarias / proyectos</h1>
 
 {% if error %}<div class="aviso error-aviso" style="margin-top:14px;">{{ error }}</div>{% endif %}
-{% if cancelado %}<div class="aviso exito" style="margin-top:14px;">El proyecto se canceló. Las propiedades que habían pagado recibieron su crédito correspondiente.</div>{% endif %}
+{% if cancelado %}<div class="aviso exito" style="margin-top:14px;">El proyecto se canceló. Lo que se decidió para cada propiedad (abono a su cuenta o reembolso) quedó registrado.</div>{% endif %}
+{% if eliminado %}<div class="aviso exito" style="margin-top:14px;">El proyecto se eliminó. Queda registrado con su fecha y motivo en el historial descargable.</div>{% endif %}
+{% if error_pct %}<div class="aviso error-aviso" style="margin-top:14px;">En financiamiento mixto escribe qué porcentaje sale del fondo (un número entre 1 y 99).</div>{% endif %}
 
 <button type="button" class="btn" onclick="alternarFormulario()">+ Nuevo proyecto</button>
 
@@ -58,7 +60,7 @@
           <span>$</span>
           <input type="number" step="0.01" min="0" name="monto_total" required placeholder="0.00">
         </div>
-        <p class="ayuda">El monto por propiedad se calcula solo: monto total ÷ propiedades activas ({{ conjunto.propiedades|selectattr("activo")|list|length }}). El centavo de redondeo lo absorbe una sola propiedad.</p>
+        <p class="ayuda">El monto por propiedad se calcula solo, según la fuente de financiamiento, entre las {{ conjunto.propiedades|selectattr("activo")|list|length }} propiedades activas. Si no se divide exacto, los centavos que sobran los pone el fondo del conjunto y queda anotado en el proyecto.</p>
       </div>
       <div>
         <label style="margin-top:0;">Fecha límite de pago (opcional)</label>
@@ -68,7 +70,7 @@
 
     <label>Estado</label>
     <select name="estado">
-      {% for clave, etiqueta in estados %}
+      {% for clave, etiqueta in estados if clave != "cancelado" %}
       <option value="{{ clave }}">{{ etiqueta }}</option>
       {% endfor %}
     </select>
@@ -108,28 +110,40 @@
     <tr class="{{ 'fila-cancelada' if pr.cancelado else '' }}">
       <td>
         {{ pr.concepto }}
-        {% if pr.cancelado %}<div><span class="etiqueta-saldo saldo-debe">Cancelado</span></div>
-        {% if pr.cancelado_motivo %}<div class="ayuda">Motivo: {{ pr.cancelado_motivo }}</div>{% endif %}
+        <div class="ayuda">{{ pr.financiamiento_legible }}{% if pr.monto_del_fondo > 0 %} · del fondo: {{ pr.monto_del_fondo|dinero }}{% endif %}</div>
+        {% if pr.ajuste_centavos_fondo %}<div class="ayuda">Incluye {{ pr.ajuste_centavos_fondo|dinero }} de redondeo que absorbe el fondo del conjunto.</div>{% endif %}
+        {% if pr.cancelado %}
+        <div class="ayuda">Cancelado el {{ pr.cancelado_en.strftime("%d/%m/%Y") if pr.cancelado_en else "" }}{% if pr.cancelado_motivo %} · Motivo: {{ pr.cancelado_motivo }}{% endif %}</div>
+        {% elif pr.estado == "terminado" and pr.terminado_en %}
+        <div class="ayuda">Terminado el {{ pr.terminado_en.strftime("%d/%m/%Y") }}</div>
         {% elif pr.comentario_estado %}<div class="ayuda">{{ pr.comentario_estado }}</div>{% endif %}
-        {% if pr.descripcion_detalle or pr.compromisos_proveedor or pr.cot1_path or pr.cot2_path or pr.cot3_path %}
         <div style="margin-top:4px;">
-          <a class="enlace" href="/proyectos/{{ pr.id }}/editar">Ver detalles y cotizaciones</a>
+          {% if pr.monto_por_propiedad > 0 %}<a class="enlace" href="/proyectos/{{ pr.id }}/pagos">Quién ha pagado</a>{% endif %}
+          {% if pr.descripcion_detalle or pr.compromisos_proveedor or pr.cot1_path or pr.cot2_path or pr.cot3_path %}
+          {% if pr.monto_por_propiedad > 0 %} · {% endif %}<a class="enlace" href="/proyectos/{{ pr.id }}/editar">Ver detalles y cotizaciones</a>
+          {% endif %}
         </div>
-        {% endif %}
       </td>
       <td class="num">{{ pr.monto_total|dinero }}</td>
       <td class="num">{{ pr.monto_por_propiedad|dinero }}</td>
       <td class="num">{{ pr.total_recaudado|dinero }}</td>
       <td class="nowrap">{{ pr.fecha_limite_pago.strftime("%d/%m/%Y") if pr.fecha_limite_pago else "—" }}</td>
-      <td><span class="badge {{ "ok" if pr.cancelado else ("ok" if pr.estado == "cerrado" else ("progreso" if pr.estado == "en_proceso" else "neutro")) }}">{{ "Cancelado" if pr.cancelado else estados_dict.get(pr.estado, pr.estado) }}</span></td>
+      <td><span class="badge {{ "neutro" if pr.cancelado else ("ok" if pr.estado in ("terminado", "cerrado") else ("progreso" if pr.estado == "en_proceso" else "neutro")) }}">{{ pr.estado_legible }}</span></td>
       <td class="acciones nowrap">
-        <a class="enlace" href="/proyectos/{{ pr.id }}/editar">Editar</a>
         {% if not pr.cancelado %}
+        <a class="enlace" href="/proyectos/{{ pr.id }}/editar">Editar</a>
+        {% if pr.estado not in ("terminado", "cerrado") %}
+        <form method="post" action="/proyectos/{{ pr.id }}/terminar" style="display:inline"
+              onsubmit="return confirm('¿Marcar «{{ pr.concepto|e }}» como terminado? Quedará registrada la fecha de hoy.')">
+          <button type="submit" class="enlace-boton">Terminado</button>
+        </form>
+        {% endif %}
           {% if pr.tiene_pagos %}
           <a class="enlace peligro" href="/proyectos/{{ pr.id }}/cancelar">Cancelar</a>
           {% else %}
           <form method="post" action="/proyectos/{{ pr.id }}/eliminar" style="display:inline"
-                onsubmit="return confirm("¿Eliminar el proyecto {{ pr.concepto }}? Esta acción no se puede deshacer.")">
+                onsubmit="return pedirMotivoEliminar(this, '{{ pr.concepto|e }}')">
+            <input type="hidden" name="motivo" value="">
             <button type="submit" class="enlace-boton peligro">Eliminar</button>
           </form>
           {% endif %}
@@ -146,6 +160,14 @@
 function alternarFormulario() {
   var f = document.getElementById("form-proyecto");
   f.style.display = (f.style.display === "none") ? "block" : "none";
+}
+function pedirMotivoEliminar(form, nombre) {
+  var motivo = prompt("¿Por qué se elimina el proyecto «" + nombre + "»? El motivo queda registrado.");
+  if (motivo === null) return false;
+  motivo = motivo.trim();
+  if (!motivo) { alert("El motivo es obligatorio para eliminar un proyecto."); return false; }
+  form.querySelector('input[name="motivo"]').value = motivo;
+  return true;
 }
 function togglePctFondo(radio) {
   document.getElementById('bloque-pct-fondo').hidden = radio.value !== 'mixto';

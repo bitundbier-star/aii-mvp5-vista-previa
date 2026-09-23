@@ -1,0 +1,13 @@
+<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto;">
+  <h2 style="color:#176BA0;">¡Bienvenido a Administración Inteligente de Inmuebles!</h2>
+  <p>Hola {{ conjunto.admin_nombre }}, la cuenta de <strong>{{ conjunto.nombre }}</strong> quedó creada.</p>
+  <table style="width:100%; border-collapse: collapse; font-size: 14px;">
+    <tr><td style="padding:6px 0; color:#666;">Plan</td><td style="padding:6px 0;"><strong>{{ plan }}</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Correo para entrar</td><td style="padding:6px 0;">{{ conjunto.login_email }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Periodo de prueba gratuito</td><td style="padding:6px 0;">hasta el {{ conjunto.prueba_hasta.strftime('%d/%m/%Y') }}</td></tr>
+  </table>
+  <p style="margin-top:18px;">Para confirmar que este correo es correcto (es el que usamos para recuperar tu acceso y mandarte avisos), da clic aquí:</p>
+  <p><a href="{{ enlace }}" style="display:inline-block; background:#176BA0; color:#fff; padding:10px 18px; border-radius:6px; text-decoration:none;">Confirmar mi correo</a></p>
+  <p style="color:#666; font-size:13px;">Si el botón no funciona, copia esta dirección en tu navegador:<br>{{ enlace }}</p>
+  <p style="color:#666; font-size:13px;">Si tú no creaste esta cuenta, ignora este correo. Este correo es automático y no recibe respuestas.</p>
+</div>

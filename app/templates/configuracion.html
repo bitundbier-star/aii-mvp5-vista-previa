@@ -342,12 +342,24 @@
   </form>
 </div>
 
-<div class="card">
-  <h2 style="margin-top:0">Método de pago</h2>
-  <p class="ayuda">La suscripción de tu conjunto a AII se cobra a través de Stripe.</p>
-  <form method="post" action="/configuracion/metodo-pago">
-    <button type="submit" class="secundario">Actualizar método de pago</button>
-  </form>
+<div class="card" id="suscripcion">
+  <h2 style="margin-top:0">Suscripción y método de pago</h2>
+  <p>Plan <strong>{{ cuenta.plan.nombre }}</strong> —
+    {% if cuenta.fase == "prueba" %}periodo de prueba gratuito hasta el {{ conjunto.prueba_hasta.strftime('%d/%m/%Y') }}.
+    {% elif cuenta.fase == "solo_lectura" %}<span class="saldo-debe">sin suscripción activa (solo lectura).</span>
+    {% elif conjunto.stripe_status == "active" %}suscripción activa.
+    {% else %}sin suscripción.{% endif %}
+  </p>
+  <p class="ayuda">La suscripción se cobra con tarjeta a través de Stripe. Desde el portal de Stripe puedes cambiar tu tarjeta, descargar tus facturas o cancelar. Cada cobro se registra solo como egreso del conjunto.</p>
+  {% if request.query_params.get("ya_suscrito") %}<div class="aviso info">Tu conjunto ya tiene una suscripción activa.</div>{% endif %}
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    {% if conjunto.stripe_status != "active" or conjunto.morosidad_desde %}
+    <a class="btn" href="/pago">Planes y pago</a>
+    {% endif %}
+    <form method="post" action="/configuracion/metodo-pago" style="margin:0;">
+      <button type="submit" class="secundario">Cambiar tarjeta / ver facturas</button>
+    </form>
+  </div>
   {% if mensaje_pago %}
   <div class="aviso info" style="margin-top:14px;">{{ mensaje_pago }}</div>
   {% endif %}

@@ -1,6 +1,16 @@
 {% extends "base.html" %}
-{% block titulo %}Editar proyecto{% endblock %}
-{% block ancho %}angosto{% endblock %}
+{% block titulo %}Editar proyecto<script>
+function togglePctFondo(radio) {
+  document.getElementById('bloque-pct-fondo').hidden = radio.value !== 'mixto';
+}
+</script>
+{% endblock %}
+{% block ancho %}angosto<script>
+function togglePctFondo(radio) {
+  document.getElementById('bloque-pct-fondo').hidden = radio.value !== 'mixto';
+}
+</script>
+{% endblock %}
 {% block contenido %}
 
 {% macro campo_cotizacion(n, proyecto) %}
@@ -31,7 +41,9 @@
 </div>
 {% endmacro %}
 
-<h1>Editar proyecto</h1>
+<h1>{{ "Proyecto cancelado" if proyecto.cancelado else "Editar proyecto" }}</h1>
+{% if request.query_params.get("error_pct") %}<div class="aviso error-aviso">En financiamiento mixto escribe qué porcentaje sale del fondo (un número entre 1 y 99).</div>{% endif %}
+{% if not proyecto.cancelado %}
 <div class="card">
   <form method="post" action="/proyectos/{{ proyecto.id }}/editar" enctype="multipart/form-data">
     <label>Concepto</label>
@@ -50,7 +62,7 @@
       <div>
         <label style="margin-top:0;">Monto total del proyecto</label>
         <input type="number" step="0.01" name="monto_total" value="{{ proyecto.monto_total }}" required>
-        <p class="ayuda">Monto actual por propiedad: {{ proyecto.monto_por_propiedad|dinero }}.</p>
+        <p class="ayuda">Monto actual por propiedad: {{ proyecto.monto_por_propiedad|dinero }}.{% if proyecto.ajuste_centavos_fondo %} El fondo absorbe {{ proyecto.ajuste_centavos_fondo|dinero }} de redondeo.{% endif %}</p>
       </div>
       <div>
         <label style="margin-top:0;">Fecha límite de pago (opcional)</label>
@@ -60,12 +72,31 @@
 
     <label>Estado</label>
     <select name="estado">
+      {% set actual = "terminado" if proyecto.estado == "cerrado" else ("por_iniciar" if proyecto.estado == "otro" else proyecto.estado) %}
       {% for clave, etiqueta in estados %}
-      <option value="{{ clave }}" {{ 'selected' if proyecto.estado == clave }}>{{ etiqueta }}</option>
+      <option value="{{ clave }}" {{ 'selected' if actual == clave }}>{{ etiqueta }}</option>
       {% endfor %}
     </select>
+    <p class="ayuda">Si eliges «Cancelado», al guardar te llevamos al proceso de cancelación para decidir qué pasa con el dinero que ya pagaron las propiedades.{% if proyecto.terminado_en %} Marcado como terminado el {{ proyecto.terminado_en.strftime("%d/%m/%Y") }}.{% endif %}</p>
     <label>Comentario (opcional)</label>
     <textarea name="comentario_estado" placeholder="Notas sobre el estado del proyecto">{{ proyecto.comentario_estado or '' }}</textarea>
+
+    <h3 style="margin-top:20px;">Fuente de financiamiento</h3>
+    {% set fin = proyecto.financiamiento or "cuota" %}
+    <div class="selector-opciones">
+      <label><input type="radio" name="financiamiento" value="fondo" {{ 'checked' if fin == 'fondo' }} onchange="togglePctFondo(this)"> 100% del fondo del conjunto</label>
+      <label><input type="radio" name="financiamiento" value="mixto" {{ 'checked' if fin == 'mixto' }} onchange="togglePctFondo(this)"> Mixto: parte del fondo y cuota extraordinaria</label>
+      <label><input type="radio" name="financiamiento" value="cuota" {{ 'checked' if fin == 'cuota' }} onchange="togglePctFondo(this)"> 100% cuota extraordinaria</label>
+    </div>
+    <div id="bloque-pct-fondo" {{ '' if fin == 'mixto' else 'hidden' }} style="margin-top:10px;">
+      <label>¿Qué porcentaje viene del fondo?</label>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input type="number" name="financiamiento_pct_fondo" min="1" max="99" step="any" value="{{ proyecto.financiamiento_pct_fondo|round(2) if proyecto.financiamiento_pct_fondo is not none else '' }}" style="width:100px;">
+        <span>%</span>
+      </div>
+      <div class="ayuda">El porcentaje restante se divide entre las propiedades como cuota extraordinaria.</div>
+    </div>
+    {% if proyecto.tiene_pagos %}<p class="ayuda">Ojo: este proyecto ya tiene pagos. Si cambias el monto o el financiamiento, cambia lo que le toca pagar a cada propiedad.</p>{% endif %}
 
     <h3 style="margin-top:20px;">Cotizaciones (opcional)</h3>
     {{ campo_cotizacion(1, proyecto) }}
@@ -73,8 +104,10 @@
     {{ campo_cotizacion(3, proyecto) }}
 
     <button type="submit" style="margin-top:20px;">Guardar cambios</button>
+    <a class="btn secundario" href="/proyectos">Cancelar registro</a>
   </form>
 </div>
+{% endif %}
 
 {% if proyecto.cancelado %}
 <div class="aviso" style="background:#fdecea; color:#9f1c14; margin-top:16px;">
@@ -82,13 +115,29 @@
   {% if proyecto.cancelado_motivo %}<br>Motivo: {{ proyecto.cancelado_motivo }}{% endif %}
   {% if proyecto.cancelado_sin_recuperar %}<br>Monto no recuperado: {{ proyecto.cancelado_sin_recuperar|dinero }}{% endif %}
 </div>
+{% if reembolsos %}
+<div class="card" style="margin-top:14px;">
+  <h2 style="margin-top:0;">Qué pasó con el dinero de cada propiedad</h2>
+  <table>
+    <tr><th>Propiedad</th><th>Decisión</th><th class="num">Monto</th><th>Forma</th></tr>
+    {% for r in reembolsos %}
+    <tr><td>{{ r.propiedad }}</td><td>{{ r.decision }}</td><td class="num">{{ r.monto|dinero }}</td><td>{{ r.forma }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
 {% elif proyecto.tiene_pagos %}
 <div class="card" style="margin-top:16px; border-left:4px solid var(--rojo);">
   <h3 style="margin-top:0; color:var(--rojo);">¿Necesitas cancelar este proyecto?</h3>
-  <p>El proyecto ya tiene pagos registrados. La cancelación no los borra: los deshace y le regresa el crédito correspondiente a cada propiedad que había pagado.</p>
+  <p>El proyecto ya tiene pagos registrados. Al cancelarlo decides, propiedad por propiedad, si el dinero se abona a su cuenta o se le reembolsa.</p>
   <a class="btn" style="background:var(--rojo);" href="/proyectos/{{ proyecto.id }}/cancelar">Cancelar este proyecto</a>
 </div>
 {% endif %}
 
 <p style="margin-top:14px;"><a class="enlace" href="/proyectos">← Volver a proyectos</a></p>
+<script>
+function togglePctFondo(radio) {
+  document.getElementById('bloque-pct-fondo').hidden = radio.value !== 'mixto';
+}
+</script>
 {% endblock %}

@@ -4,7 +4,7 @@
 {% block contenido %}
 <h1>Cancelar proyecto</h1>
 <h2 style="color:var(--rojo); margin-top:0;">{{ proyecto.concepto }}</h2>
-<p class="ayuda">El proyecto recaudó <strong>{{ proyecto.total_recaudado|dinero }}</strong> en total. Cancelarlo <strong>no borra</strong> los pagos que ya se registraron: los deshace en la cartera y le asigna el crédito correspondiente a cada propiedad que había pagado.</p>
+<p class="ayuda">El proyecto recaudó <strong>{{ proyecto.total_recaudado|dinero }}</strong> en total. Cancelarlo <strong>no borra</strong> los pagos que ya se registraron. Después de la vista previa decides, propiedad por propiedad, si lo que le toca de regreso <strong>se abona a su cuenta</strong> o <strong>se le reembolsa</strong>.</p>
 
 {% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
 
@@ -32,61 +32,64 @@
       </div>
     </div>
 
-    <label style="margin-top:14px;">¿Qué pasa con el dinero que sí se recupera?</label>
-    <div class="selector-opciones">
-      <label><input type="radio" name="credito_modo" value="cubrir_deuda" {{ 'checked' if not form or form.credito_modo == 'cubrir_deuda' }}> Primero cubre lo que debe cada propiedad; lo que sobre queda a favor <span class="ayuda">(recomendado)</span></label>
-      <label><input type="radio" name="credito_modo" value="todo_favor" {{ 'checked' if form and form.credito_modo == 'todo_favor' }}> Todo queda como saldo a favor, sin tocar el adeudo de mantenimiento</label>
-    </div>
-
     <button type="submit" class="secundario" style="margin-top:16px;">Ver vista previa del impacto</button>
   </form>
 </div>
 
 {% if preview is not none %}
+<form method="post" action="/proyectos/{{ proyecto.id }}/cancelar/confirmar" enctype="multipart/form-data" id="form-confirmar"
+      onsubmit="return confirm('¿Confirmas la cancelación del proyecto {{ proyecto.concepto|e }}? Los abonos y reembolsos se registran de inmediato.')">
+<input type="hidden" name="motivo" value="{{ form.motivo }}">
+<input type="hidden" name="sin_recuperar" value="{{ form.sin_recuperar }}">
+<input type="hidden" name="reparto_perdida" value="{{ form.reparto_perdida }}">
 <div class="card" style="margin-top:16px;">
-  <h3 style="margin-top:0;">Vista previa: qué le pasaría a cada propiedad</h3>
-  <p class="ayuda">Nadie recibe dinero en efectivo: el crédito se registra en la plataforma y reduce lo que esa propiedad deba en el futuro.</p>
+  <h3 style="margin-top:0;">Qué pasa con el dinero de cada propiedad</h3>
+  <p class="ayuda">Elige para cada propiedad lo que decidan con ella. <strong>Abonar a su cuenta</strong>: cubre primero lo que deba y lo demás queda a favor. <strong>Reembolso</strong>: el dinero se le devuelve y queda registrado como egreso del conjunto. Lo que se pagó en efectivo se puede devolver en efectivo; lo que se pagó por otra vía, solo por transferencia.</p>
   <table>
     <tr>
       <th>Propiedad</th>
       <th class="num">Pagó al proyecto</th>
       <th class="num">Pérdida asignada</th>
-      <th class="num">Crédito que recibe</th>
+      <th class="num">Le toca de regreso</th>
+      <th>Decisión</th>
       <th class="num">Saldo actual</th>
-      <th class="num">Saldo nuevo</th>
     </tr>
     {% for f in preview %}
-    <tr {{ 'style="opacity:0.5;"' if not f.cambia and f.pagado == 0 }}>
+    <tr {{ 'style="opacity:0.5;"' if f.pagado == 0 }}>
       <td>{{ f.propiedad.etiqueta }}{% if f.propiedad.nombre_dueno %}<div class="ayuda">{{ f.propiedad.nombre_dueno }}</div>{% endif %}</td>
-      <td class="num">{{ f.pagado|dinero }}</td>
-      <td class="num {{ 'saldo-debe' if f.perdida > 0 }}">{{ f.perdida|dinero }}</td>
-      <td class="num {{ 'saldo-favor' if f.devuelto > 0 }}"><strong>{{ f.devuelto|dinero }}</strong></td>
-      <td class="num {{ 'saldo-debe' if f.saldo_actual > 0 else ('saldo-favor' if f.saldo_actual < -0.005 else '') }}">{{ f.saldo_actual|dinero }}</td>
-      <td class="num {{ 'saldo-debe' if f.saldo_nuevo > 0 else ('saldo-favor' if f.saldo_nuevo < -0.005 else '') }}"><strong>{{ f.saldo_nuevo|dinero }}</strong></td>
+      <td class="num">{{ f.pagado|dinero }}{% if f.pagado_efectivo > 0 %}<div class="ayuda">{{ f.pagado_efectivo|dinero }} en efectivo</div>{% endif %}</td>
+      <td class="num">{{ f.perdida|dinero }}</td>
+      <td class="num"><strong>{{ f.devuelto|dinero }}</strong></td>
+      <td>
+        {% if f.devuelto > 0.005 %}
+        <select name="decision_{{ f.propiedad.id }}" style="min-width:220px;">
+          <option value="abono" {{ 'selected' if f.decision == 'abono' }}>Abonar a su cuenta</option>
+          {% if f.pagado_efectivo > 0 %}
+          <option value="reembolso_proporcional" {{ 'selected' if f.decision == 'reembolso_proporcional' }}>Reembolso proporcional a cómo pagó</option>
+          {% endif %}
+          <option value="reembolso_transferencia" {{ 'selected' if f.decision == 'reembolso_transferencia' }}>Reembolso todo por transferencia</option>
+        </select>
+        {% else %}—{% endif %}
+      </td>
+      <td class="num {{ estado_saldo(f.saldo_actual).clase }}">{{ f.saldo_actual|dinero }}{% if f.saldo_actual|abs > 0.005 %}<div class="ayuda">{{ estado_saldo(f.saldo_actual).palabra }}</div>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>
-  <p class="ayuda" style="margin-top:8px;">Saldo negativo = la propiedad quedaría a favor. Saldo positivo = todavía debería algo.</p>
+  <p class="ayuda" style="margin-top:8px;">«Reembolso proporcional»: si pagó una parte en efectivo y otra por transferencia, se le devuelve igual, cada parte por su vía.</p>
 </div>
 
 <div class="card" style="margin-top:16px; border-left: 4px solid var(--rojo);">
   <h3 style="margin-top:0; color:var(--rojo);">Confirmar cancelación</h3>
-  <p>Esta acción <strong>no se puede deshacer</strong>. Si después hay un cambio de postura y el proyecto se reactiva, tendrá que crearse de nuevo.</p>
-  <form method="post" action="/proyectos/{{ proyecto.id }}/cancelar/confirmar" enctype="multipart/form-data"
-        onsubmit="return confirm('¿Confirmas la cancelación del proyecto {{ proyecto.concepto }}? Los créditos se aplicarán de inmediato.')">
-    <input type="hidden" name="motivo" value="{{ form.motivo }}">
-    <input type="hidden" name="sin_recuperar" value="{{ form.sin_recuperar }}">
-    <input type="hidden" name="reparto_perdida" value="{{ form.reparto_perdida }}">
-    <input type="hidden" name="credito_modo" value="{{ form.credito_modo }}">
-    <div class="archivo-campo">
-      <label>Documento de respaldo (opcional)</label>
-      <input type="file" name="respaldo" accept="image/*,application/pdf">
-      <div class="ayuda">El acta de la asamblea donde se decidió cancelar, la carta del proveedor, o cualquier otro documento que justifique la cancelación.</div>
-    </div>
-    <button type="submit" style="background:var(--rojo); margin-top:14px;">Sí, cancelar el proyecto definitivamente</button>
-    <a class="btn secundario" href="/proyectos/{{ proyecto.id }}/editar">No, volver al proyecto</a>
-  </form>
+  <p>Esta acción <strong>no se puede deshacer</strong>. Si después el proyecto se reactiva, tendrá que crearse de nuevo.</p>
+  <div class="archivo-campo">
+    <label>Documento de respaldo (opcional)</label>
+    <input type="file" name="respaldo" accept="image/*,application/pdf">
+    <div class="ayuda">El acta de la asamblea donde se decidió cancelar, la carta del proveedor o cualquier otro documento que justifique la cancelación.</div>
+  </div>
+  <button type="submit" style="background:var(--rojo); margin-top:14px;">Sí, cancelar el proyecto definitivamente</button>
+  <a class="btn secundario" href="/proyectos/{{ proyecto.id }}/editar">No, volver al proyecto</a>
 </div>
+</form>
 {% endif %}
 
 <p style="margin-top:16px;"><a class="enlace" href="/proyectos">← Volver a proyectos</a></p>

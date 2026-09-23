@@ -5,7 +5,7 @@
 <div class="encabezado-reporte">
   <div>
     <h1 style="margin:0">Reporte mensual{% if reporte %} — {{ reporte.periodo }}{% endif %}</h1>
-    <p class="ayuda" style="margin:4px 0 0;">{{ conjunto.nombre }} · Administra {{ conjunto.admin_nombre }}</p>
+    <p class="ayuda" style="margin:4px 0 0;">{{ conjunto.nombre }} · Administra {{ reporte.administrador if reporte else conjunto.admin_nombre }}</p>
   </div>
 </div>
 
@@ -39,7 +39,7 @@
           </option>
           {% endfor %}
         </select>
-        <p class="ayuda" style="margin-bottom:0;">Los meses anteriores no caducan: se pueden consultar y descargar cuando quieras.</p>
+        <p class="ayuda" style="margin-bottom:0;">En tu plan puedes consultar aquí los {{ reporte.meses_disponibles|length if reporte.meses_disponibles|length < 2 else 2 }} meses cerrados más recientes. Los anteriores no se borran: siguen completos en el historial que descargas desde Configuración.</p>
       </div>
       <div>
         <label style="margin-top:0;">Saldos por propiedad</label>

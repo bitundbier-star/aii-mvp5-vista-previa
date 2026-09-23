@@ -24,6 +24,11 @@
 {% endif %}
 
 <div class="card">
+  {% if request.query_params.get('verificado') == '1' %}
+  <div class="aviso exito">¡Listo! Tu correo quedó confirmado. Ya puedes entrar.</div>
+  {% elif request.query_params.get('verificado') == '0' %}
+  <div class="aviso error-aviso">Ese enlace de confirmación ya no es válido. Entra a tu cuenta y pide uno nuevo desde el Inicio.</div>
+  {% endif %}
   {% if request.query_params.get('traspaso') == '1' %}
   <div class="aviso exito">Se actualizó el administrador en turno. Inicia sesión con los nuevos datos.</div>
   {% endif %}

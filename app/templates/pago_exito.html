@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block titulo %}¡Gracias!{% endblock %}
+{% block contenido %}
+<div class="card" style="max-width:620px; margin: 20px auto; text-align:center;">
+  <h1 style="color:var(--azul);">¡Listo, gracias!</h1>
+  <p>La suscripción de <strong>{{ conjunto.nombre }}</strong> al plan <strong>{{ planes.basico.nombre }}</strong> quedó registrada.</p>
+  <p class="ayuda">Stripe te manda el recibo a tu correo. En unos segundos tu cuenta se actualiza sola; si todavía ves el aviso de prueba o de solo lectura, recarga la página en un momento.</p>
+  <p class="ayuda">Cada cobro mensual se registra solo como egreso del conjunto. Para cambiar tu tarjeta o ver tus facturas, entra a Configuración → «Cambiar tarjeta / ver facturas».</p>
+  <a class="btn" href="/dashboard">Ir al inicio</a>
+</div>
+{% endblock %}

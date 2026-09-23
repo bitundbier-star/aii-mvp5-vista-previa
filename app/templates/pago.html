@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block titulo %}Planes y pago{% endblock %}
+{% block contenido %}
+<h1>Planes y pago</h1>
+
+{% if bloqueada or cuenta.fase in ("bloqueada", "borrar") %}
+<div class="aviso error-aviso">
+  <strong>Tu cuenta está suspendida por falta de pago.</strong> Para volver a ver tu información, reactiva la suscripción.
+  {% if cuenta.fecha_borrado %}Si no se reactiva, el {{ cuenta.fecha_borrado.strftime('%d/%m/%Y') }} se borrará toda la información del conjunto.{% endif %}
+</div>
+{% elif cuenta.fase == "solo_lectura" %}
+<div class="aviso error-aviso">
+  Tu cuenta está en <strong>solo lectura</strong>. Al reactivar la suscripción vuelves a poder registrar todo de inmediato.
+</div>
+{% elif cuenta.fase == "prueba" %}
+<div class="aviso info">
+  Estás en tu periodo de prueba gratuito ({{ cuenta.dias_prueba }} día{{ 's' if cuenta.dias_prueba != 1 }} restante{{ 's' if cuenta.dias_prueba != 1 }}).
+  Si te suscribes ahora <strong>no pierdes esos días</strong>: el primer cobro se hace hasta el {{ conjunto.prueba_hasta.strftime('%d/%m/%Y') }}.
+</div>
+{% elif conjunto.stripe_status == "active" %}
+<div class="aviso exito">Tu conjunto ya tiene una suscripción activa. Para cambiar tu tarjeta o ver tus facturas, ve a <a class="enlace" href="/configuracion#suscripcion">Configuración</a>.</div>
+{% endif %}
+
+{% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
+
+<div class="planes">
+  <div class="card plan plan-destacado">
+    <div class="plan-etiqueta">Disponible</div>
+    <h2 style="margin-top:4px;">{{ planes.basico.nombre }}</h2>
+    <div class="plan-precio">{{ precio|dinero }} <span>MXN al mes, IVA incluido</span></div>
+    <p>Todo el dinero del conjunto en orden, para hasta {{ planes.basico.limite }} propiedades.</p>
+    <ul class="plan-lista">
+      <li>Pagos con folio y comprobante en PDF</li>
+      <li>Quién debe y quién está al corriente, en vivo</li>
+      <li>Egresos y proyectos del conjunto</li>
+      <li>Reporte mensual en PDF</li>
+      <li>Historial descargable y traspaso al siguiente administrador</li>
+    </ul>
+    {% if conjunto.stripe_status == "active" and not conjunto.morosidad_desde %}
+    <button type="button" class="secundario" disabled>Es tu plan actual</button>
+    {% elif stripe_listo %}
+    <form method="post" action="/pago/checkout" style="margin:0;">
+      <button type="submit">{{ "Reactivar mi cuenta" if cuenta.fase in ("solo_lectura", "bloqueada", "borrar") else "Suscribirme" }}</button>
+    </form>
+    <p class="ayuda" style="margin-top:8px;">El pago se hace en la página segura de Stripe. Si tienes un código de descuento, lo escribes ahí.</p>
+    {% else %}
+    <div class="aviso info">El cobro en línea todavía no está activo. Escríbenos por WhatsApp al +52 55 4550 1517 para contratar.</div>
+    {% endif %}
+  </div>
+
+  <div class="card plan plan-proximo">
+    <div class="plan-etiqueta">Próximamente</div>
+    <h2 style="margin-top:4px;">{{ planes.medio.nombre }}</h2>
+    <p>Para hasta {{ planes.medio.limite }} propiedades, con recordatorios automáticos, envío de comprobantes y reportes por correo, reglamento, multas y bitácora de acuerdos.</p>
+  </div>
+
+  <div class="card plan plan-proximo">
+    <div class="plan-etiqueta">Próximamente</div>
+    <h2 style="margin-top:4px;">{{ planes.alto.nombre }}</h2>
+    <p>Sin límite de propiedades y con inteligencia artificial para registrar pagos, fundamentar multas y decidir cómo financiar proyectos.</p>
+  </div>
+</div>
+
+<p class="ayuda" style="margin-top:14px;">¿Dudas? Escríbenos por WhatsApp al +52 55 4550 1517.{% if cuenta.fase not in ("bloqueada", "borrar") %} · <a class="enlace" href="/dashboard">← Volver al inicio</a>{% else %} · <a class="enlace" href="/logout">Salir</a>{% endif %}</p>
+{% endblock %}

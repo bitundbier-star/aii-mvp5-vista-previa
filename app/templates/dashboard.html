@@ -3,17 +3,30 @@
 {% block contenido %}
 <h1>Hola, {{ conjunto.admin_nombre }}</h1>
 
-{% if conjunto.stripe_status == "trialing" and conjunto.prueba_hasta %}
-{% set dias = (conjunto.prueba_hasta - hoy_fecha).days %}
+{% if request.query_params.get("solo_lectura") or cuenta.fase == "solo_lectura" %}
+<div class="aviso error-aviso">
+  <strong>Tu cuenta está en modo solo lectura</strong> porque no hay una suscripción activa. Puedes ver y descargar tu información, pero no registrar nada nuevo.
+  El {{ cuenta.fecha_bloqueo.strftime('%d/%m/%Y') }} dejarás de tener acceso y el {{ cuenta.fecha_borrado.strftime('%d/%m/%Y') }} se borrará todo.
+  <a class="enlace" href="/pago">Reactivar mi cuenta →</a>
+</div>
+{% elif cuenta.fase == "prueba" %}
+{% set dias = cuenta.dias_prueba %}
 <div class="aviso {{ 'error-aviso' if dias <= 5 else 'info' }}">
   {% if dias > 0 %}
   Tu periodo de prueba gratuito termina en <strong>{{ dias }} día{{ 's' if dias != 1 }}</strong> ({{ conjunto.prueba_hasta.strftime('%d/%m/%Y') }}).
   <a class="enlace" href="/pago">Suscribirse ahora →</a>
-  {% elif dias == 0 %}
-  <strong>Tu periodo de prueba termina hoy.</strong> <a class="enlace" href="/pago">Suscribirse para continuar →</a>
   {% else %}
-  <strong>Tu periodo de prueba venció.</strong> Suscríbete para seguir usando la plataforma. <a class="enlace" href="/pago">Suscribirse →</a>
+  <strong>Tu periodo de prueba termina hoy.</strong> <a class="enlace" href="/pago">Suscribirse para continuar →</a>
   {% endif %}
+</div>
+{% endif %}
+{% if request.query_params.get("verificado") == "1" %}
+<div class="aviso exito">¡Listo! Tu correo quedó confirmado.</div>
+{% elif not conjunto.email_verificado and conjunto.verif_token %}
+<div class="aviso info">
+  Confirma tu correo ({{ conjunto.login_email }}) con el enlace que te mandamos al registrarte. Es el que usamos para recuperar tu acceso.
+  {% if request.query_params.get("reenviado") %}<strong>Te lo volvimos a mandar.</strong>{% else %}
+  <form method="post" action="/verificar/reenviar" style="display:inline; margin:0;"><button type="submit" class="enlace-boton">Reenviar el correo</button></form>{% endif %}
 </div>
 {% endif %}
 

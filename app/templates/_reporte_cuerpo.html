@@ -131,6 +131,7 @@
       <td>
         {{ p.nombre }}
         {% if not p.cancelado and p.get("financiamiento_legible") %}<div class="ayuda">({{ p.financiamiento_legible }})</div>{% endif %}
+        {% if not p.cancelado and p.get("ajuste_centavos_fondo") %}<div class="ayuda">El fondo absorbe {{ p.ajuste_centavos_fondo|dinero }} de redondeo.</div>{% endif %}
         {% if p.cancelado %}<span class="etiqueta-saldo saldo-debe">Cancelado</span>{% if p.motivo %} <span class="ayuda">{{ p.motivo }}</span>{% endif %}{% endif %}
       </td>
       <td class="num">{% if not p.cancelado %}{{ p.get("monto_del_fondo", 0)|dinero }}{% else %}—{% endif %}</td>

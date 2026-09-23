@@ -55,7 +55,7 @@
     <img src="/static/img/logo-con-nombre.png?v={{ v_static }}" alt="Administración Inteligente de Inmuebles">
     <div>
       <h1>Reporte mensual — {{ reporte.periodo }}</h1>
-      <p class="sub">{{ conjunto.nombre }} · Administra {{ conjunto.admin_nombre }}</p>
+      <p class="sub">{{ conjunto.nombre }} · Administra {{ reporte.administrador or conjunto.admin_nombre }}</p>
     </div>
   </header>
 

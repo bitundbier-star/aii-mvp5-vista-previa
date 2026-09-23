@@ -1,0 +1,11 @@
+<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto;">
+  <h2 style="color:#b42318;">Tu cuenta será cancelada</h2>
+  <p>Hola, la cuenta de <strong>{{ conjunto.nombre }}</strong> lleva {{ info.dias }} días sin un pago de suscripción activo.</p>
+  <ul style="font-size:14px; line-height:1.6;">
+    <li>A partir del <strong>{{ info.fecha_bloqueo.strftime('%d/%m/%Y') }}</strong> ya no podrás entrar a ver la información; solo podrás pagar para reactivarla.</li>
+    <li>El <strong>{{ info.fecha_borrado.strftime('%d/%m/%Y') }}</strong> se borrará definitivamente toda la información del conjunto: propiedades, pagos, egresos, proyectos y comprobantes.</li>
+  </ul>
+  <p>Si quieres conservar tu historial, entra hoy y descárgalo desde Configuración → «Descargar historial», o reactiva la suscripción:</p>
+  <p><a href="{{ app_url }}/pago" style="display:inline-block; background:#176BA0; color:#fff; padding:10px 18px; border-radius:6px; text-decoration:none;">Reactivar mi cuenta</a></p>
+  <p style="color:#666; font-size:13px;">Este correo es automático y no recibe respuestas.</p>
+</div>

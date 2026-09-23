@@ -1,0 +1,16 @@
+{# Aviso a la propiedad cuando la administración cancela un pago ya registrado. #}
+<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
+  <h2 style="color:#b42318;">Se canceló un pago registrado</h2>
+  <p>La administración de <strong>{{ conjunto.nombre }}</strong> canceló el siguiente pago de la propiedad <strong>{{ recibo.propiedad.etiqueta }}</strong>. El comprobante con este folio ya no es válido.</p>
+  <table style="width:100%; border-collapse: collapse; font-size: 14px;">
+    <tr><td style="padding:6px 0; color:#666;">Folio</td><td style="padding:6px 0;"><strong>{{ recibo.folio }}</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Fecha del pago</td><td style="padding:6px 0;">{{ recibo.fecha_recepcion.strftime('%d/%m/%Y') }}</td></tr>
+    {% for p in recibo.partidas %}
+    <tr><td style="padding:6px 0; color:#666;">{{ p.concepto_legible }}</td><td style="padding:6px 0;">{{ p.monto|dinero }}</td></tr>
+    {% endfor %}
+    <tr><td style="padding:6px 0; color:#666; border-top:1px solid #ddd;"><strong>Total cancelado</strong></td><td style="padding:6px 0; border-top:1px solid #ddd;"><strong>{{ recibo.total|dinero }} MXN</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Cancelado el</td><td style="padding:6px 0;">{{ cancelado_el }}</td></tr>
+  </table>
+  <p style="margin-top:16px;">Un pago se cancela cuando se registró por error (monto, propiedad o concepto equivocado). Si ya entregaste ese dinero, lo normal es que la administración registre el pago correcto con un folio nuevo.</p>
+  <p style="color:#666; font-size:13px;">Si tienes dudas, comunícate directamente con la administración de {{ conjunto.nombre }}. Este correo es automático y no recibe respuestas.</p>
+</div>

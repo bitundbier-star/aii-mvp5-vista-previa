@@ -86,21 +86,23 @@
     {% for e in egresos %}
     <tr>
       <td class="nowrap">{{ e.fecha.strftime('%d/%m/%Y') }}</td>
-      <td>{{ e.concepto }}</td>
+      <td>{{ e.concepto }}{% if e.proyecto and e.proyecto.concepto not in e.concepto %}<div class="ayuda">Proyecto: {{ e.proyecto.concepto }}</div>{% endif %}{% if e.automatico %}<div class="ayuda">Registrado automáticamente por el sistema</div>{% endif %}</td>
       <td class="nowrap">{{ e.forma_pago_legible or '—' }}</td>
       <td class="num">{{ e.monto|dinero }}</td>
       <td class="archivos-lista">
         {% if e.recibo_path %}<a class="enlace" href="/egresos/{{ e.id }}/archivo/recibo" target="_blank">Recibo</a>{% endif %}
         {% if e.xml_path %}<a class="enlace" href="/egresos/{{ e.id }}/archivo/xml" target="_blank">XML</a>{% endif %}
         {% if e.comprobante_path %}<a class="enlace" href="/egresos/{{ e.id }}/archivo/comprobante" target="_blank">Comprobante de pago</a>{% endif %}
-        {% if not e.recibo_path %}<span class="falta-recibo">Sin recibo</span>{% endif %}
+        {% if not e.recibo_path and not e.automatico %}<span class="falta-recibo">Sin recibo</span>{% endif %}
       </td>
       <td class="acciones">
+        {% if not e.automatico %}
         <a class="enlace" href="/egresos?editar={{ e.id }}#egreso-{{ e.id }}">Editar</a>
         <form method="post" action="/egresos/{{ e.id }}/eliminar" style="display:inline"
               onsubmit="return confirm('¿Cancelar el egreso &quot;{{ e.concepto }}&quot; por {{ e.monto|dinero }}? El dinero vuelve al saldo acumulado del conjunto.')">
           <button type="submit" class="enlace-boton peligro">Cancelar</button>
         </form>
+        {% endif %}
       </td>
     </tr>
     {% if editar_id == e.id|string %}
@@ -147,6 +149,13 @@
 <p class="ayuda">El saldo acumulado del conjunto se calcula en vivo: lo que había al abrir la cuenta, más todo lo que ha entrado, menos todo lo que ha salido. Al cancelar un egreso, el dinero disponible sube solo.</p>
 
 <script>
+function toggleProyectoEgreso(chk) {
+  var bloque = document.getElementById('bloque-proyecto-egreso');
+  if (!bloque) return;
+  bloque.hidden = !chk.checked;
+  var sel = bloque.querySelector('select');
+  if (sel) { sel.required = chk.checked; if (!chk.checked) sel.value = ''; }
+}
 function alternarFormulario() {
   var f = document.getElementById('form-egreso');
   f.style.display = (f.style.display === 'none') ? 'block' : 'none';

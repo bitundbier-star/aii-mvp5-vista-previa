@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png?v={{ v_static }}">
 </head>
 <body>
-{% if modo_demo %}
+{% if modo_demo and (not conjunto or conjunto.login_email == demo_email_global) %}
 <div class="cinta-demo">
   <strong>Versión de demostración.</strong>
   Los datos que ves son de ejemplo, de un conjunto que no existe.
@@ -25,8 +25,8 @@
     <div class="marca-wrap">
       <a href="/dashboard"><img src="/static/img/logo.png?v={{ v_static }}" alt="" class="logo-icono"></a>
       <div class="marca-texto">
-        <a class="marca" href="/dashboard">Administración inteligente de inmuebles: Auto-administración de residenciales</a>
-        <span class="conjunto-nombre">{{ conjunto.nombre }} — {{ conjunto.admin_nombre }}</span>
+        <a class="marca" href="/dashboard">Auto-administración de {{ conjunto.nombre }}</a>
+        <span class="conjunto-nombre">Plan {{ cuenta.plan.nombre if cuenta else "Cuentas Claras" }}{% if cuenta and cuenta.fase == "prueba" %} · Prueba: {{ cuenta.dias_prueba }} día{{ 's' if cuenta.dias_prueba != 1 }} restante{{ 's' if cuenta.dias_prueba != 1 }}{% elif cuenta and cuenta.fase == "solo_lectura" %} · Solo lectura{% endif %}</span>
       </div>
     </div>
     <button type="button" class="btn secundario pequeno" id="btn-ayuda" onclick="AII.ayuda.abrir()">? Ayuda</button>
