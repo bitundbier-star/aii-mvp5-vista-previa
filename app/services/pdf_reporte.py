@@ -209,9 +209,9 @@ def generar_pdf_reporte(conjunto, reporte: dict, version: str = "detalle") -> by
         anchos = [ancho * 0.40, ancho * 0.22, ancho * 0.20, ancho * 0.18]
         filas = []
         for e in reporte["estado_propiedades"]:
+            # Solo el número de la propiedad: el reporte circula entre todos
+            # los vecinos y el nombre del propietario no tiene por qué ir ahí.
             nombre = e["propiedad"].etiqueta
-            if e["propiedad"].nombre_dueno:
-                nombre += f" — {e['propiedad'].nombre_dueno}"
             color = _color_saldo(e["vista"])
             filas.append([
                 (nombre[:48], None),

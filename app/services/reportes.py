@@ -49,7 +49,7 @@ def mes_reportable(al_dia: dt.date | None = None) -> tuple[int, int]:
 
 # Cuántos meses cerrados se pueden consultar como reporte según el plan. Los
 # meses anteriores no se borran: siguen completos en el historial descargable.
-MESES_REPORTE_POR_PLAN = {"basico": 2, "medio": 6, "alto": None}
+MESES_REPORTE_POR_PLAN = {"basico": 3, "medio": 12, "alto": None}
 
 
 def meses_disponibles(conjunto: Conjunto, al_dia: dt.date | None = None, todos: bool = False) -> list[dict]:
