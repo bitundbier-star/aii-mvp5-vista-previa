@@ -562,3 +562,20 @@ button.peligro:hover { background: #9f1c14; }
 .fila-cancelada td:first-child { opacity: 1; }
 .enlace.peligro { color: var(--rojo); }
 .enlace.peligro:hover { color: #9f1c14; }
+
+/* --- Planes y pago ------------------------------------------------------- */
+.planes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: start; }
+.plan { margin-bottom: 0; }
+.plan-destacado { border: 2px solid var(--azul); }
+.plan-proximo { opacity: .7; }
+.plan-etiqueta { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--gris-100, #f1f3f5); color: var(--gris-600, #555); }
+.plan-destacado .plan-etiqueta { background: var(--azul-claro); color: var(--azul); }
+.plan-precio { font-size: 26px; font-weight: 700; margin: 6px 0 10px; }
+.plan-precio span { font-size: 13px; font-weight: 400; color: var(--gris-600, #555); }
+.plan-lista { padding-left: 18px; margin: 0 0 14px; line-height: 1.6; font-size: 14px; }
+
+/* En celular la línea del plan y los días de prueba puede ocupar dos
+   renglones: es información que el administrador sí necesita ver completa. */
+@media (max-width: 600px) {
+  header.topbar .conjunto-nombre { white-space: normal; font-size: 12px; line-height: 1.3; }
+}
