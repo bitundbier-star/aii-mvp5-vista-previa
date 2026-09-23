@@ -4,7 +4,9 @@ correo, egresos con forma de pago y archivos, cartera sin «Esperado», reporte
 en PDF (detalle y resumen) y destinatarios del correo."""
 import datetime as dt
 import io
+import os
 import re
+import sqlite3
 
 import requests
 
@@ -109,7 +111,15 @@ from PIL import Image  # noqa: E402
 Image.new("RGB", (40, 40), "white").save(png, format="PNG")
 s.post(f"{BASE}/configuracion/modo-interfaz", data={"modo": "completo"})
 r = s.post(f"{BASE}/egresos/nuevo", data={"concepto": "Prueba sin recibo", "monto": "100", "fecha": hoy, "forma_pago": "efectivo"})
-check("egreso sin recibo se rechaza", "Falta subir el recibo" in r.text)
+# Desde la ronda 5.8 el plan básico registra egresos sin archivos adjuntos.
+check("egreso sin recibo se acepta en el plan básico", "Falta subir el recibo" not in r.text)
+# Los archivos adjuntos son una función de los planes superiores: el resto de
+# este bloque prueba esa función, así que la cuenta pasa al plan medio.
+_db = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "aii.db")
+_con = sqlite3.connect(_db)
+_con.execute("update conjuntos set plan_nombre='medio' where login_email=?", ("demo@aii.mx",))
+_con.commit(); _con.close()
+
 r = s.post(f"{BASE}/egresos/nuevo", data={"concepto": "Prueba sin forma", "monto": "100", "fecha": hoy},
            files={"recibo": ("r.png", png.getvalue(), "image/png")})
 check("egreso sin forma de pago se rechaza", "forma en que se hizo el pago" in r.text)

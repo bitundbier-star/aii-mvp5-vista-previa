@@ -82,8 +82,10 @@ s.post(f"{BASE}/configuracion/modo-interfaz", data={"modo": "completo"})
 
 # --- Proyectos: reparto ----------------------------------------------------------
 def nuevo_proyecto(concepto, monto, fin, pct=""):
+    # Desde la ronda 5.8 el proveedor es obligatorio.
     s.post(f"{BASE}/proyectos/nuevo", data={"concepto": concepto, "monto_total": str(monto),
-            "estado": "en_recaudacion", "financiamiento": fin, "financiamiento_pct_fondo": pct})
+            "estado": "en_recaudacion", "financiamiento": fin, "financiamiento_pct_fondo": pct,
+            "proveedor_nombre": "Proveedor de prueba"})
     return sql("select id, monto_por_propiedad, ajuste_centavos_fondo from proyectos where conjunto_id=? and concepto=?", (cid, concepto))[0]
 
 p_fondo = nuevo_proyecto("Bomba nueva", 30000, "fondo")
@@ -95,7 +97,8 @@ check("centavos: $10,000 entre 30 = $333.33 por propiedad", p_cuota[1] == 333.33
 check("centavos: el fondo absorbe $0.10 y queda anotado", abs((p_cuota[2] or 0) - 0.10) < 0.001)
 r = s.get(f"{BASE}/proyectos")
 check("la lista menciona el redondeo que absorbe el fondo", "de redondeo que absorbe el fondo" in r.text)
-r = s.post(f"{BASE}/proyectos/nuevo", data={"concepto": "Mal", "monto_total": "100", "financiamiento": "mixto", "financiamiento_pct_fondo": ""})
+r = s.post(f"{BASE}/proyectos/nuevo", data={"concepto": "Mal", "monto_total": "100", "financiamiento": "mixto",
+           "financiamiento_pct_fondo": "", "proveedor_nombre": "Proveedor de prueba"})
 check("mixto sin porcentaje se rechaza", "error_pct=1" in r.url)
 
 r = s.get(f"{BASE}/cartera")
@@ -109,13 +112,14 @@ check("la última propiedad ya no carga el proyecto pagado por el fondo", abs(mo
 
 # --- Editar, terminar, eliminar -------------------------------------------------------
 r = s.post(f"{BASE}/proyectos/{p_fondo[0]}/editar", data={"concepto": "Bomba nueva", "monto_total": "30000",
-          "estado": "en_proceso", "financiamiento": "fondo"})
+          "estado": "en_proceso", "financiamiento": "fondo", "proveedor_nombre": "Proveedor de prueba"})
 check("editar un proyecto ya no truena", r.status_code == 200 and r.url.endswith("/proyectos"))
 s.post(f"{BASE}/proyectos/{p_fondo[0]}/terminar")
 est = sql("select estado, terminado_en from proyectos where id=?", (p_fondo[0],))[0]
 check("marcar Terminado guarda estado y fecha", est[0] == "terminado" and est[1])
 r = s.post(f"{BASE}/proyectos/{p_mixto[0]}/editar", data={"concepto": "Pintura fachada", "monto_total": "30000",
-          "estado": "cancelado", "financiamiento": "mixto", "financiamiento_pct_fondo": "50"})
+          "estado": "cancelado", "financiamiento": "mixto", "financiamiento_pct_fondo": "50",
+          "proveedor_nombre": "Proveedor de prueba"})
 check("elegir Cancelado lleva al proceso de cancelación", r.url.endswith(f"/proyectos/{p_mixto[0]}/cancelar"))
 p_borrar = nuevo_proyecto("Idea descartada", 1000, "cuota")
 r = s.post(f"{BASE}/proyectos/{p_borrar[0]}/eliminar", data={"motivo": ""})
@@ -126,7 +130,7 @@ check("eliminar deja registro con fecha y motivo", el[0] == 1 and el[1] and el[2
 check("el eliminado ya no aparece en la lista", "Idea descartada" not in s.get(f"{BASE}/proyectos").text)
 
 # --- Egreso ligado a proyecto ---------------------------------------------------------
-r = s.get(f"{BASE}/egresos")
+r = s.get(f"{BASE}/egresos/nuevo")
 check("egresos: existe la función que despliega los proyectos", "function toggleProyectoEgreso" in r.text and "Pintura fachada" in r.text)
 
 # --- Pagos al proyecto mixto y cancelación con decisiones --------------------------------------
@@ -234,7 +238,7 @@ d = requests.Session()
 d.post(f"{BASE}/login", data={"login_email": "demo@aii.mx", "password": "demo1234"})
 r = d.get(f"{BASE}/reporte")
 opciones = re.findall(r'<option value="\d{4}-\d{1,2}"', r.text)
-check("plan básico: solo 2 meses de reporte", len(opciones) == 2)
+check("plan básico: 3 meses de reporte", len(opciones) == 3)
 check("el reporte dice quién administraba ese mes", "Administra " in r.text)
 r = d.get(f"{BASE}/dashboard")
 check("la demo no entra a solo lectura ni pide pago", "solo lectura" not in r.text and "Prueba:" not in r.text)
