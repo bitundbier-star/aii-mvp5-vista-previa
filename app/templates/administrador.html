@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block titulo %}Administrador en turno{% endblock %}
 {% block contenido %}
-<p><a class="enlace" href="/configuracion">← Volver a configuración</a></p>
+<a class="enlace volver-config" href="/configuracion">← Configuración</a>
 <h1>Traspaso de administración</h1>
 
 <div class="card">
   <p><strong>Administrador actual:</strong> {{ conjunto.admin_nombre }} ({{ conjunto.login_email }})</p>
-  <p class="ayuda">Al actualizar estos datos, se genera automáticamente una foto del estado del conjunto en este momento (cartera y últimos movimientos), y se cierra la sesión actual para que el nuevo administrador entre con sus propios datos.</p>
+  <p class="ayuda">Al actualizar estos datos, se genera automáticamente una foto del estado del conjunto en este momento (cartera y últimos movimientos), y se cierra la sesión actual para que el nuevo administrador entre con sus propios datos. También se avisa por correo del cambio a los propietarios que tengan correo registrado.</p>
 </div>
 
 <div class="card">

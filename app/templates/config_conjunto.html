@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block titulo %}Datos del conjunto{% endblock %}
+{% block contenido %}
+<a class="enlace volver-config" href="/configuracion">← Configuración</a>
+<h1>Datos del conjunto</h1>
+{% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Datos del conjunto</h2>
+  <form method="post" action="/configuracion/direccion">
+    <label>Nombre del conjunto</label>
+    <input type="text" name="nombre" value="{{ conjunto.nombre }}" required maxlength="120">
+    <div class="ayuda">Aparece en los comprobantes, en los reportes y en el encabezado de la app.</div>
+    <label>Dirección</label>
+    <input type="text" name="direccion" value="{{ conjunto.direccion or '' }}" placeholder="Calle, número, colonia, ciudad">
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Monto de mantenimiento</h2>
+  <p>Monto actual: <strong>${{ '%.2f'|format(conjunto.monto_mensual) }}</strong></p>
+  {% if conjunto.historial_montos %}
+  <p class="ayuda">Historial:
+    {% for h in conjunto.historial_montos %} ${{ '%.2f'|format(h.monto) }} desde {{ h.vigente_desde.strftime('%d/%m/%Y') }}{% if not loop.last %} · {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+  <form method="post" action="/configuracion/monto">
+    <label>Nuevo monto</label>
+    <div class="campo-moneda">
+      <span>$</span>
+      <input type="number" step="0.01" min="0" name="nuevo_monto" required placeholder="0.00">
+    </div>
+    <label>¿Desde cuándo aplica?</label>
+    <input type="date" name="vigente_desde" value="{{ hoy }}" required>
+    <p class="ayuda">Los meses anteriores a esta fecha se siguen calculando con el monto que estaba vigente en su momento — no se reescribe el pasado.</p>
+    <button type="submit" class="secundario">Guardar nuevo monto</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Monto por pago posterior al día límite</h2>
+  <p class="ayuda">
+    {% if conjunto.aplica_recargo_tardio and conjunto.monto_mensual_tardio %}
+    Activado: todo mes que ya pasó su fecha límite se cobra a <strong>${{ '%.2f'|format(conjunto.monto_mensual_tardio) }}</strong> en vez del monto normal.
+    {% else %}
+    Ahora mismo está apagado: todos los meses se cobran al monto normal, sin importar cuándo se paguen.
+    {% endif %}
+    Este cambio se aplica de inmediato a toda la cartera pendiente — no lleva historial como el monto normal.
+  </p>
+  <form method="post" action="/configuracion/monto-tardio">
+    <label class="check">
+      <input type="checkbox" name="aplica_recargo_tardio" value="1" id="check-recargo-config" {{ 'checked' if conjunto.aplica_recargo_tardio }} onchange="alternarRecargoConfig()">
+      El monto aumenta si se paga después de la fecha límite
+    </label>
+    <div id="bloque-recargo-config" style="{{ '' if conjunto.aplica_recargo_tardio else 'display:none;' }}">
+      <label>Monto mensual si se paga después de la fecha límite</label>
+      <div class="campo-moneda">
+        <span>$</span>
+        <input type="number" step="0.01" min="0" name="monto_mensual_tardio" value="{{ '%.2f'|format(conjunto.monto_mensual_tardio) if conjunto.monto_mensual_tardio else '' }}" placeholder="0.00">
+      </div>
+    </div>
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Fecha límite de pago mensual</h2>
+  <p class="ayuda">
+    El mantenimiento de cada mes vence el día <strong>{{ conjunto.fecha_limite_pago }}</strong>.
+    Mientras no pase ese día, el mes en curso no cuenta como adeudo — el día 3 nadie debe
+    todavía el mes que apenas empieza. Al cambiarlo, la cartera se recalcula sola.
+  </p>
+  <form method="post" action="/configuracion/fecha-limite">
+    <label>¿Qué día del mes vence el pago?</label>
+    <div class="campo-moneda">
+      <span>Día</span>
+      <input type="number" name="fecha_limite_pago" min="1" max="31" value="{{ conjunto.fecha_limite_pago }}" required>
+    </div>
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Recordatorio de revisión del monto</h2>
+  <p class="ayuda">
+    {% if conjunto.monto_revision_meses %}
+    Ahora mismo te recordamos revisar el monto cada {{ conjunto.monto_revision_meses }} meses.
+    {% else %}
+    Ahora mismo no te recordamos nada: tú cambias el monto cuando lo necesites.
+    {% endif %}
+    Puedes cambiarlo cuando quieras, en los dos sentidos.
+  </p>
+  <form method="post" action="/configuracion/revision">
+    <label>¿Cada cuánto te preguntamos si el monto sigue vigente?</label>
+    <select name="monto_revision_meses">
+      {% for meses, etiqueta in opciones_revision %}
+      <option value="{{ meses }}" {{ 'selected' if conjunto.monto_revision_meses == meses else '' }}>{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Descargar todo el historial</h2>
+  <p class="ayuda">
+    Un archivo con todo lo que hay en la plataforma: propiedades, pagos, egresos, proyectos y la
+    cartera. Vienen los datos en formato de Excel y también una versión para leer o imprimir.
+  </p>
+  <p class="ayuda">
+    Descárgalo cuando quieras — al cerrar el año, antes de un traspaso, o solo por tener el respaldo.
+    Lo que está aquí adentro es del conjunto, no de la plataforma.
+  </p>
+  <a class="btn secundario" href="/configuracion/descargar">Descargar historial completo</a>
+</div>
+
+<script>
+function alternarRecargoConfig() {
+  document.getElementById('bloque-recargo-config').style.display =
+    document.getElementById('check-recargo-config').checked ? 'block' : 'none';
+}
+</script>
+
+{% endblock %}

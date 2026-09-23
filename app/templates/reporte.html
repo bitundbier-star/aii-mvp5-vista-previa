@@ -39,7 +39,7 @@
           </option>
           {% endfor %}
         </select>
-        <p class="ayuda" style="margin-bottom:0;">En tu plan puedes consultar aquí los {{ reporte.meses_disponibles|length if reporte.meses_disponibles|length < 2 else 2 }} meses cerrados más recientes. Los anteriores no se borran: siguen completos en el historial que descargas desde Configuración.</p>
+        <p class="ayuda" style="margin-bottom:0;">En tu plan puedes consultar aquí los {{ reporte.meses_disponibles|length if reporte.meses_disponibles|length < 3 else 3 }} meses cerrados más recientes. Los anteriores no se borran: siguen completos en el historial que descargas desde Configuración.</p>
       </div>
       <div>
         <label style="margin-top:0;">Saldos por propiedad</label>

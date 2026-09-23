@@ -1,0 +1,13 @@
+{# Aviso a los propietarios cuando cambia el administrador en turno. #}
+<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto;">
+  <h2 style="color:#176BA0;">Cambio de administrador en {{ conjunto.nombre }}</h2>
+  <p>Te informamos que la administración de <strong>{{ conjunto.nombre }}</strong> cambió de responsable.</p>
+  <table style="width:100%; border-collapse: collapse; font-size: 14px;">
+    <tr><td style="padding:6px 0; color:#666;">Administrador saliente</td><td style="padding:6px 0;">{{ admin_anterior }}</td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Nuevo administrador</td><td style="padding:6px 0;"><strong>{{ admin_nuevo }}</strong></td></tr>
+    <tr><td style="padding:6px 0; color:#666;">Fecha del cambio</td><td style="padding:6px 0;">{{ fecha }}</td></tr>
+  </table>
+  <p style="margin-top:16px;">Al hacer el cambio se guardó automáticamente un registro del estado financiero del conjunto en este momento, como constancia de en qué condiciones se entregó la administración.</p>
+  <p>De ahora en adelante, para cualquier tema de pagos, comprobantes o adeudos, dirígete con el nuevo administrador.</p>
+  <p style="color:#666; font-size:13px;">Este correo es automático y no recibe respuestas.</p>
+</div>

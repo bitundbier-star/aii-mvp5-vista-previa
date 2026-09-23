@@ -43,7 +43,7 @@
 {% if not enviado_a %}
 <div class="aviso {{ 'exito' if smtp_real else 'info' }}">
   {% if smtp_real %}
-  El comprobante se envió al correo de la cuenta ({{ conjunto.cuenta_email }}){% if enviado_al_vecino %} y también al vecino{% endif %}.
+  El comprobante se envió por correo a {{ conjunto.cuenta_email }}{% if conjunto.login_email and conjunto.login_email != conjunto.cuenta_email %} y a {{ conjunto.login_email }}{% endif %}{% if enviado_al_vecino %}, y también al vecino{% endif %}.
   {% else %}
   Modo de prueba: no hay un correo real configurado, así que el comprobante se guardó como vista previa en lugar de enviarse{% if enviado_al_vecino %} (tanto el de la cuenta como el del vecino){% endif %}.
   {% endif %}

@@ -78,9 +78,13 @@
     </select>
     <div class="ayuda">Es solo para tu registro: no cambia ningún cálculo de la cartera.</div>
 
+    {% if plan_incluye.envio_comprobante_vecino %}
     <label>Enviar el comprobante también al vecino (opcional)</label>
     <input type="email" name="correo_destino" value="{{ previo.correo_destino or '' }}" placeholder="correo del vecino que pagó">
-    <div class="ayuda">El comprobante se manda siempre y automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}). Esto es por si además quieres mandárselo a quien pagó.</div>
+    {% endif %}
+    <div class="aviso info" style="margin-top:14px;">
+      Al registrarlo, el comprobante se manda solo por correo a <strong>{{ conjunto.cuenta_email }}</strong>{% if conjunto.login_email and conjunto.login_email != conjunto.cuenta_email %} y a <strong>{{ conjunto.login_email }}</strong>{% endif %}. Después puedes compartirlo por WhatsApp con quien pagó.
+    </div>
 
     <button type="submit">Registrar y generar comprobante</button>
     <a class="btn secundario" href="/pagos">Cancelar</a>

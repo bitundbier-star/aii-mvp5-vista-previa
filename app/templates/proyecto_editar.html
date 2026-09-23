@@ -81,6 +81,20 @@ function togglePctFondo(radio) {
     <label>Comentario (opcional)</label>
     <textarea name="comentario_estado" placeholder="Notas sobre el estado del proyecto">{{ proyecto.comentario_estado or '' }}</textarea>
 
+    <h3 style="margin-top:20px;">Proveedor</h3>
+    <label style="margin-top:0;">Nombre del proveedor <span class="obligatorio">*</span></label>
+    <input type="text" name="proveedor_nombre" value="{{ proyecto.proveedor_nombre or '' }}" required maxlength="200">
+    <div class="fila-campos">
+      <div>
+        <label>Correo del proveedor (opcional)</label>
+        <input type="email" name="proveedor_email" value="{{ proyecto.proveedor_email or '' }}" placeholder="contacto@proveedor.com">
+      </div>
+      <div>
+        <label>Teléfono o celular (opcional)</label>
+        <input type="tel" name="proveedor_telefono" value="{{ proyecto.proveedor_telefono or '' }}" placeholder="+52 55 1234 5678">
+      </div>
+    </div>
+
     <h3 style="margin-top:20px;">Fuente de financiamiento</h3>
     {% set fin = proyecto.financiamiento or "cuota" %}
     <div class="selector-opciones">
@@ -98,10 +112,12 @@ function togglePctFondo(radio) {
     </div>
     {% if proyecto.tiene_pagos %}<p class="ayuda">Ojo: este proyecto ya tiene pagos. Si cambias el monto o el financiamiento, cambia lo que le toca pagar a cada propiedad.</p>{% endif %}
 
+    {% if plan_incluye.cotizaciones %}
     <h3 style="margin-top:20px;">Cotizaciones (opcional)</h3>
     {{ campo_cotizacion(1, proyecto) }}
     {{ campo_cotizacion(2, proyecto) }}
     {{ campo_cotizacion(3, proyecto) }}
+    {% endif %}
 
     <button type="submit" style="margin-top:20px;">Guardar cambios</button>
     <a class="btn secundario" href="/proyectos">Cancelar registro</a>
@@ -115,6 +131,16 @@ function togglePctFondo(radio) {
   {% if proyecto.cancelado_motivo %}<br>Motivo: {{ proyecto.cancelado_motivo }}{% endif %}
   {% if proyecto.cancelado_sin_recuperar %}<br>Monto no recuperado: {{ proyecto.cancelado_sin_recuperar|dinero }}{% endif %}
 </div>
+{% if proyecto.proveedor_nombre %}
+<div class="card" style="margin-top:14px;">
+  <h2 style="margin-top:0;">Proveedor</h2>
+  <div class="ficha-lectura">
+    <div class="ficha-dato"><span class="ficha-etiqueta">Nombre</span><span>{{ proyecto.proveedor_nombre }}</span></div>
+    <div class="ficha-dato"><span class="ficha-etiqueta">Correo</span><span>{{ proyecto.proveedor_email or '—' }}</span></div>
+    <div class="ficha-dato"><span class="ficha-etiqueta">Teléfono</span><span>{{ proyecto.proveedor_telefono or '—' }}</span></div>
+  </div>
+</div>
+{% endif %}
 {% if reembolsos %}
 <div class="card" style="margin-top:14px;">
   <h2 style="margin-top:0;">Qué pasó con el dinero de cada propiedad</h2>

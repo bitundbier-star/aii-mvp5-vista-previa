@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block titulo %}Nuevo egreso{% endblock %}
+{% macro campos_archivos(e=None) %}
+  <div class="archivo-campo">
+    <label>{% if e %}Reemplazar recibo o factura{% else %}Recibo o factura <span class="obligatorio">*</span>{% endif %}</label>
+    <input type="file" name="recibo" accept="image/*,application/pdf" {{ '' if e or conjunto.modo_interfaz != "completo" else 'required' }}>
+    <div class="ayuda">{% if e %}Déjalo vacío para conservar el que ya tiene.{% else %}Obligatorio. Foto, captura o PDF. Si el proveedor no dio recibo, sube la foto de una nota firmada por quien recibió el pago.{% endif %}</div>
+  </div>
+  <div class="archivo-campo">
+    <label>{% if e %}Reemplazar XML de la factura{% else %}XML de la factura (opcional){% endif %}</label>
+    <input type="file" name="xml" accept=".xml,text/xml,application/xml">
+  </div>
+  <div class="archivo-campo">
+    <label>{% if e %}Reemplazar comprobante de pago{% else %}Comprobante de pago (opcional){% endif %}</label>
+    <input type="file" name="comprobante" accept="image/*,application/pdf">
+    <div class="ayuda">La captura de la transferencia, el voucher de la tarjeta o la foto del cheque: la prueba de que el pago sí se hizo.</div>
+  </div>
+{% endmacro %}
+{% block contenido %}
+<a class="enlace volver-config" href="/egresos">← Egresos</a>
+<h1>Registrar egreso</h1>
+
+<div class="card" style="max-width:760px;">
+  
+  {% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
+  <form method="post" action="/egresos/nuevo" enctype="multipart/form-data">
+    <label>Concepto</label>
+    <input type="text" name="concepto" id="concepto-egreso" list="conceptos-previos" required placeholder="p. ej. pago a empresa de limpieza" oninput="sugerirMontoEgreso()" autocomplete="off" value="{{ previo.concepto or '' }}">
+    <datalist id="conceptos-previos">
+      {% for c in conceptos_previos %}<option value="{{ c }}">{% endfor %}
+    </datalist>
+    {% if conceptos_previos %}<div class="ayuda">Empieza a escribir un gasto que ya hayas registrado antes (jardinería, limpieza, luz de áreas comunes…) y aparece en la lista con el monto de la última vez.</div>{% endif %}
+    {% set proyectos_activos = conjunto.proyectos|selectattr("en_curso")|list %}
+    {% if proyectos_activos %}
+    <div class="check" style="margin-top:10px;">
+      <input type="checkbox" id="chk-proyecto-egreso" name="es_proyecto" value="1" onchange="toggleProyectoEgreso(this)">
+      <label for="chk-proyecto-egreso">Este egreso corresponde a un proyecto</label>
+    </div>
+    <div id="bloque-proyecto-egreso" hidden style="margin-top:8px;">
+      <label>¿A qué proyecto corresponde?</label>
+      <select name="proyecto_id_egreso">
+        <option value="">Selecciona el proyecto…</option>
+        {% for pr in proyectos_activos %}
+        <option value="{{ pr.id }}">{{ pr.concepto }} ({{ pr.monto_total|dinero }} total — {{ pr.financiamiento_legible }})</option>
+        {% endfor %}
+      </select>
+      <div class="ayuda">Al vincularlo, el egreso aparece asociado a ese proyecto en el historial y en los reportes.</div>
+    </div>
+    {% endif %}
+    <div class="fila-campos">
+      <div>
+        <label>Monto</label>
+        <div class="campo-moneda">
+          <span>$</span>
+          <input type="number" step="0.01" min="0" name="monto" id="monto-egreso" required placeholder="0.00" value="{{ previo.monto or '' }}">
+        </div>
+      </div>
+      <div>
+        <label>Fecha</label>
+        <input type="date" name="fecha" value="{{ previo.fecha or hoy }}" required>
+      </div>
+    </div>
+    <label>Forma de pago</label>
+    <select name="forma_pago" required>
+      <option value="" {{ '' if previo.forma_pago else 'selected' }} disabled>Elige cómo se pagó…</option>
+      {% for clave, etiqueta in formas_pago %}
+      <option value="{{ clave }}" {{ 'selected' if previo.forma_pago == clave else '' }}>{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+    {% if plan_incluye.archivos_egresos and conjunto.modo_interfaz == "completo" %}{{ campos_archivos() }}{% endif %}
+    <button type="submit">Registrar egreso</button>
+    <a class="btn secundario" href="/egresos">Cancelar</a>
+  </form>
+  <p class="ayuda">Cada egreso se avisa automáticamente al correo de la cuenta ({{ conjunto.cuenta_email }}), para que quede constancia de que alguien sacó dinero.</p>
+</div>
+
+
+<script>
+function toggleProyectoEgreso(chk) {
+  var bloque = document.getElementById('bloque-proyecto-egreso');
+  if (!bloque) return;
+  bloque.hidden = !chk.checked;
+  var sel = bloque.querySelector('select');
+  if (sel) { sel.required = chk.checked; if (!chk.checked) sel.value = ''; }
+}
+function sugerirMontoEgreso() {
+  var concepto = document.getElementById('concepto-egreso').value;
+  var montoAnterior = MONTOS_POR_CONCEPTO[concepto];
+  var campoMonto = document.getElementById('monto-egreso');
+  // Solo se sugiere si el concepto coincide exacto con uno anterior y el
+  // administrador todavía no escribió su propio monto — nunca se pisa lo
+  // que ya haya tecleado.
+  if (montoAnterior !== undefined && !campoMonto.value) {
+    campoMonto.value = montoAnterior.toFixed(2);
+  }
+}
+</script>
+{% endblock %}

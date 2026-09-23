@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block titulo %}Modo de interfaz{% endblock %}
+{% block contenido %}
+<a class="enlace volver-config" href="/configuracion">← Configuración</a>
+<h1>Modo de interfaz</h1>
+{% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <p>En <strong>modo simplificado</strong> solo aparecen las funciones esenciales: pagos, cartera y egresos.</p>
+  <p class="ayuda">Si decides cambiar de interfaz no pierdes nada de tu información: solo aparecen menos elementos en el menú. Tu información está segura y puedes volver al modo completo cuando quieras.</p>
+  <form method="post" action="/configuracion/modo-interfaz">
+    <div class="selector-opciones">
+      <label><input type="radio" name="modo" value="simplificado" {{ 'checked' if not conjunto.modo_interfaz == "completo" }}> Simplificado — solo lo esencial</label>
+      <label><input type="radio" name="modo" value="completo" {{ 'checked' if conjunto.modo_interfaz == "completo" }}> Completo — todas las funciones de tu plan</label>
+    </div>
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+{% endblock %}

@@ -48,7 +48,12 @@
 <div class="contenedor{{ ' contenedor-angosto' if not conjunto else '' }} {% block ancho %}{% endblock %}">
   {% block contenido %}{% endblock %}
 </div>
-<footer class="pie">MVP — Administración Inteligente de Inmuebles</footer>
+<footer class="pie">
+  <img src="/static/img/logo.png?v={{ v_static }}" alt="" class="pie-logo">
+  <div class="pie-titulo">Auto-administración de conjuntos</div>
+  <div class="pie-marca">Administración Inteligente de Inmuebles</div>
+  <div class="pie-credito">by Omnera.mx</div>
+</footer>
 {% if conjunto %}
 <button type="button" class="btn-subir-arriba" id="btn-subir-arriba" aria-label="Subir al inicio de la página" title="Subir al inicio">↑</button>
 {% endif %}

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block titulo %}Tu cuenta{% endblock %}
+{% block contenido %}
+<a class="enlace volver-config" href="/configuracion">← Configuración</a>
+<h1>Tu cuenta</h1>
+{% if error %}<div class="aviso error-aviso">{{ error }}</div>{% endif %}
+
+<div class="card" id="suscripcion">
+  <h2 style="margin-top:0">Suscripción y método de pago</h2>
+  <p>Plan <strong>{{ cuenta.plan.nombre }}</strong> —
+    {% if cuenta.fase == "prueba" %}periodo de prueba gratuito hasta el {{ conjunto.prueba_hasta.strftime('%d/%m/%Y') }}.
+    {% elif cuenta.fase == "solo_lectura" %}<span class="saldo-debe">sin suscripción activa (solo lectura).</span>
+    {% elif conjunto.stripe_status == "active" %}suscripción activa.
+    {% else %}sin suscripción.{% endif %}
+  </p>
+  <p class="ayuda">La suscripción se cobra con tarjeta a través de Stripe. Desde el portal de Stripe puedes cambiar tu tarjeta, descargar tus facturas o cancelar. Cada cobro se registra solo como egreso del conjunto.</p>
+  {% if request.query_params.get("ya_suscrito") %}<div class="aviso info">Tu conjunto ya tiene una suscripción activa.</div>{% endif %}
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    {% if conjunto.stripe_status != "active" or conjunto.morosidad_desde %}
+    <a class="btn" href="/pago">Planes y pago</a>
+    {% endif %}
+    <form method="post" action="/configuracion/metodo-pago" style="margin:0;">
+      <button type="submit" class="secundario">Cambiar tarjeta / ver facturas</button>
+    </form>
+  </div>
+  {% if mensaje_pago %}
+  <div class="aviso info" style="margin-top:14px;">{{ mensaje_pago }}</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Tus correos</h2>
+  <div class="ficha-lectura">
+    <div class="ficha-dato"><span class="ficha-etiqueta">Correo principal (con el que entras)</span><span>{{ conjunto.login_email }}</span></div>
+    <div class="ficha-dato"><span class="ficha-etiqueta">Correo de la cuenta</span><span>{{ conjunto.cuenta_email }}</span></div>
+  </div>
+  <p class="ayuda">El <strong>correo principal</strong> es con el que inicias sesión; se cambia desde el traspaso de administración. El <strong>correo de la cuenta</strong> es a donde llegan los comprobantes, los reportes y los avisos importantes: no cambia aunque cambie el administrador en turno.</p>
+  <form method="post" action="/configuracion/cuenta-email">
+    <label>Correo de la cuenta</label>
+    <input type="email" name="cuenta_email" value="{{ conjunto.cuenta_email or '' }}" required placeholder="correo del conjunto">
+    {% if error_cuenta_email %}<div class="error">{{ error_cuenta_email }}</div>{% endif %}
+    {% if exito_cuenta_email %}<div class="aviso exito">Correo de la cuenta actualizado.</div>{% endif %}
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Cambiar contraseña</h2>
+  <p class="ayuda">Para cambiar tu contraseña sin hacer un traspaso de administración.</p>
+  <form method="post" action="/configuracion/password">
+    <label>Contraseña actual</label>
+    <input type="password" name="password_actual" required>
+    <label>Contraseña nueva</label>
+    <input type="password" name="password_nueva" required minlength="6">
+    {% if error_password %}<div class="error">{{ error_password }}</div>{% endif %}
+    {% if exito_password %}<div class="aviso exito">Contraseña actualizada.</div>{% endif %}
+    <button type="submit" class="secundario">Cambiar contraseña</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Correo de recuperación</h2>
+  <p class="ayuda">
+    Para el «Olvidé mi contraseña». Recomendamos que sea el correo de <strong>otra persona</strong>
+    responsable de la administración —un sub-administrador—, no el tuyo: si algún día quien
+    administra pierde el celular con el que entra a la app y a su correo, este es el respaldo que
+    permite recuperar el acceso. Al pedir «Olvidé mi contraseña» el enlace llega tanto al correo
+    de la cuenta ({{ conjunto.cuenta_email }}) como a este.
+  </p>
+  <form method="post" action="/configuracion/recuperacion">
+    <label>Correo de recuperación</label>
+    <input type="email" name="correo_recuperacion" value="{{ conjunto.correo_recuperacion or '' }}" placeholder="correo de otro vecino responsable">
+    {% if error_recuperacion %}<div class="error">{{ error_recuperacion }}</div>{% endif %}
+    {% if exito_recuperacion %}<div class="aviso exito">Correo de recuperación actualizado.</div>{% endif %}
+    <button type="submit" class="secundario">Guardar</button>
+  </form>
+</div>
+
+<div class="card zona-peligro">
+  <h2 style="margin-top:0">Borrar la cuenta del conjunto</h2>
+
+  <p>
+    Esto <strong>no se puede deshacer</strong>. Al borrar la cuenta desaparecen de la plataforma:
+  </p>
+  <ul>
+    <li>las {{ propiedades|length }} propiedades, con los datos de sus propietarios y residentes</li>
+    <li>todos los pagos registrados y sus comprobantes</li>
+    <li>todos los egresos y proyectos</li>
+    <li>el historial completo de todos los meses</li>
+  </ul>
+
+  <div class="aviso-peligro">
+    No estás borrando tu información: estás borrando las cuentas de todos los vecinos del conjunto,
+    incluidos los comprobantes que ya les entregaste. Si mañana hay una discusión sobre quién pagó
+    qué, este era el registro.
+  </div>
+
+  <p><strong>Antes de continuar, llévate el historial.</strong> Lo descargas desde <a class="enlace" href="/configuracion/conjunto">Datos del conjunto</a>.</p>
+  <a class="btn secundario" href="/configuracion/descargar">Descargar historial completo</a>
+
+  <details class="desplegable-peligro">
+    <summary>Ya descargué el historial y quiero borrar la cuenta</summary>
+    <form method="post" action="/configuracion/borrar-cuenta">
+      <label>Escribe el nombre del conjunto para confirmar</label>
+      <p class="ayuda" style="margin-top:-2px;">Tal cual aparece: <strong>{{ conjunto.nombre }}</strong></p>
+      <input type="text" name="confirmacion" autocomplete="off" required>
+
+      <label>Tu contraseña</label>
+      <input type="password" name="password" required>
+
+      {% if error_borrado %}<div class="error">{{ error_borrado }}</div>{% endif %}
+
+      <p class="ayuda">Se mandará un aviso a {{ conjunto.cuenta_email }} dejando constancia.</p>
+      <button type="submit" class="peligro">Borrar la cuenta definitivamente</button>
+    </form>
+  </details>
+</div>
+
+{% endblock %}

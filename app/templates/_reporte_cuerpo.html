@@ -64,10 +64,7 @@
     </tr>
     {% for e in reporte.estado_propiedades %}
     <tr>
-      <td>
-        {{ e.propiedad.etiqueta }}
-        {% if e.propiedad.nombre_dueno %}<div class="ayuda">{{ e.propiedad.nombre_dueno }}</div>{% endif %}
-      </td>
+      <td>{{ e.propiedad.etiqueta }}</td>
       <td class="num">{{ e.pagado_en_el_mes|dinero }}</td>
       <td class="num {{ e.vista.clase }}"><strong>{{ e.vista.monto }}</strong></td>
       <td><span class="etiqueta-saldo {{ e.vista.clase }}">{{ e.vista.palabra }}</span></td>
